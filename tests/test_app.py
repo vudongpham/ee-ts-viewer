@@ -68,3 +68,29 @@ def test_groups_cannot_be_mixed():
     assert r.status_code == 400
     page = client.get("/").get_data(as_text=True)
     assert "Individual Sensors" in page and "Harmonized Sensors" in page and 'value="HLSL30"' in page and 'value="HLSS30"' in page
+
+
+def test_viewer_works_without_export_libraries(monkeypatch):
+    """If rasterio / GDAL cannot be loaded, only the download fails."""
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def no_rasterio(name, *args, **kwargs):
+        if name == "rasterio" or name.startswith("rasterio."):
+            raise ImportError("libexpat.so.1: cannot open shared object file")
+        return real_import(name, *args, **kwargs)
+
+    import eetsviewer
+    monkeypatch.delitem(sys.modules, "eetsviewer.export", raising=False)
+    monkeypatch.delattr(eetsviewer, "export", raising=False)
+    for mod in [m for m in sys.modules if m == "rasterio" or m.startswith("rasterio.")]:
+        monkeypatch.delitem(sys.modules, mod)
+    monkeypatch.setattr(builtins, "__import__", no_rasterio)
+
+    client = appmod.app.test_client()
+    assert client.get("/").status_code == 200
+    r = client.post("/export", json={"sensor": "LND08", "id": "x", "extent": "view"})
+    assert r.status_code == 500 and "libexpat" in r.get_json()["error"]
+    assert client.get("/export/abc").status_code == 404
