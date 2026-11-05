@@ -25,6 +25,7 @@ from rasterio.crs import CRS
 from rasterio.transform import Affine
 from rasterio.warp import transform as warp_transform, transform_bounds
 
+from . import console
 from .earthengine import IMAGE_ID, RETRY_PATTERNS
 from .sensors import (CLOUD_SCORE_PLUS, CS_AGGRESSIVE, CS_DEFAULT, LANDSAT_GAIN, LANDSAT_OFFSET,
                       MASK_AGGRESSIVE, MASK_DEFAULT, SCL_AGGRESSIVE, SCL_DEFAULT,
@@ -360,8 +361,11 @@ class ExportJob:
 
     def finish(self, status, error=None):
         with self.lock:
-            if self.status == "running":
+            changed = self.status == "running"
+            if changed:
                 self.status, self.error, self.finished = status, error, time.time()
+        if changed:
+            report_finished(self)
         if status != "done":
             self.cleanup()
 
@@ -407,6 +411,9 @@ def run_export(job, fetch=None):
                     dst.write(f.result(), window=((row, row + h), (col, col + w)))
                     with job.lock:
                         job.current += 1
+                    console.progress(job.id, job.current, job.total,
+                                     f"{job.current}/{job.total} blocks · {plan.name}",
+                                     force=job.current >= job.total)
         if not job.cancelled.is_set():
             job.finish("done")
     except Exception as exc:
@@ -421,8 +428,38 @@ export_lock = threading.Lock()
 MAX_EXPORT_JOBS = 8
 
 
+# ---------------------------------------------------------------------------
+# Terminal output (one start and one result line per download)
+# ---------------------------------------------------------------------------
+
+MASK_KINDS = {None: "raw", MASK_DEFAULT: "cloud masked (Default)",
+              MASK_AGGRESSIVE: "cloud masked (Aggressive)"}
+
+
+def report_started(job):
+    p = job.plan
+    console.info("Download", f"{p.name} · {MASK_KINDS.get(p.mask, p.mask)} · "
+                             f"{p.width} × {p.height} px · {len(p.bands)} bands "
+                             + console.style(f"({job.total} blocks)", "grey"))
+
+
+def report_finished(job):
+    console.end_progress(job.id)
+    elapsed = console.fmt_seconds(job.finished - job.started)
+    name = job.plan.name
+    if job.status == "done":
+        size = console.fmt_bytes(os.path.getsize(job.path)) if os.path.exists(job.path) else "?"
+        console.ok("Download", f"{name} ready · {size} · {elapsed}")
+    elif job.status == "error":
+        one = " ".join((job.error or "unknown error").split())
+        console.error("Download", f"{name} failed: {one[:160]}")
+    else:
+        console.stopped("Download", f"{name} cancelled after {job.current}/{job.total} blocks")
+
+
 def start_export(plan):
     job = ExportJob(plan)
+    report_started(job)
     with export_lock:
         _expire()
         export_jobs[job.id] = job
