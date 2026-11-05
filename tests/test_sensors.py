@@ -1,0 +1,76 @@
+from datetime import date
+
+from eetsviewer import sensors as S
+from eetsviewer.app import observations
+
+
+def test_landsat_scaling():
+    # rho = DN * 0.0000275 - 0.2  ->  DN 21818 ~ 0.4
+    assert S.compute_value("LND08", {"NIR": 21818}, "NIR") == 4000
+    ndvi = S.compute_value("LND08", {"NIR": 21818, "RED": 10909}, "NDVI")
+    assert ndvi == round((4000 - 1000) / (4000 + 1000) * 10000)
+
+
+def test_sentinel2_values_and_indices():
+    raw = {"BLUE": 500, "GREEN": 800, "RED": 600, "NIR": 3000, "SWIR1": 2000, "SWIR2": 1000}
+    assert S.compute_value("SEN2A", raw, "RED") == 600
+    assert S.compute_value("SEN2A", raw, "NDVI") == 6667
+    assert S.compute_value("SEN2A", raw, "NBR") == 5000
+    assert S.compute_value("SEN2A", raw, "NDMI") == 2000
+    assert S.compute_value("SEN2A", raw, "NDWI") == round((800 - 3000) / 3800 * 10000)
+    evi = 2.5 * (0.3 - 0.06) / (0.3 + 6 * 0.06 - 7.5 * 0.05 + 1) * 10000
+    assert S.compute_value("SEN2A", raw, "EVI") == round(evi)
+    assert S.compute_value("LND08", raw, "RE1") is None  # S2-only band
+    assert S.compute_value("SEN2A", {"NIR": 0, "RED": 0}, "NDVI") is None
+
+
+CLEAR = 1 << 6 | 1 << 8          # clear, low cloud confidence
+CLOUD = 1 << 3 | 3 << 8          # cloud, high confidence
+SHADOW = 1 << 4
+MEDIUM_CONF = 1 << 6 | 2 << 8    # clear but medium cloud confidence
+
+
+def test_landsat_mask():
+    assert S.landsat_clear({"QA_PIXEL": CLEAR}, S.MASK_DEFAULT)
+    assert not S.landsat_clear({"QA_PIXEL": CLOUD}, S.MASK_DEFAULT)
+    assert not S.landsat_clear({"QA_PIXEL": SHADOW}, S.MASK_DEFAULT)
+    assert S.landsat_clear({"QA_PIXEL": CLOUD}, S.MASK_NONE)
+    assert not S.landsat_clear({"QA_PIXEL": 1}, S.MASK_NONE)  # fill
+    assert S.landsat_clear({"QA_PIXEL": MEDIUM_CONF}, S.MASK_DEFAULT)
+    assert not S.landsat_clear({"QA_PIXEL": MEDIUM_CONF}, S.MASK_AGGRESSIVE)
+    assert not S.landsat_clear({"QA_PIXEL": CLEAR, "QA_RADSAT": 4}, S.MASK_AGGRESSIVE)
+    assert not S.landsat_clear({"QA_PIXEL": CLEAR, "AEROSOL": 0b11000000}, S.MASK_AGGRESSIVE)
+    assert not S.landsat_clear({"QA_PIXEL": CLEAR, "OPACITY": 500}, S.MASK_AGGRESSIVE)
+    assert S.landsat_clear({"QA_PIXEL": CLEAR, "QA_RADSAT": 0, "OPACITY": 100}, S.MASK_AGGRESSIVE)
+
+
+def test_sentinel2_mask():
+    assert S.sentinel2_clear({"SCL": 4, "cs_cdf": 0.9}, S.MASK_DEFAULT)
+    assert S.sentinel2_clear({"SCL": 4, "cs_cdf": None}, S.MASK_DEFAULT)
+    assert not S.sentinel2_clear({"SCL": 4, "cs_cdf": 0.3}, S.MASK_DEFAULT)
+    assert not S.sentinel2_clear({"SCL": 9, "cs_cdf": 0.9}, S.MASK_DEFAULT)
+    assert S.sentinel2_clear({"SCL": 7, "cs_cdf": 0.6}, S.MASK_DEFAULT)
+    assert not S.sentinel2_clear({"SCL": 7, "cs_cdf": 0.9}, S.MASK_AGGRESSIVE)
+    assert not S.sentinel2_clear({"SCL": 4, "cs_cdf": 0.6}, S.MASK_AGGRESSIVE)
+    assert S.sentinel2_clear({"SCL": 9}, S.MASK_NONE)
+    assert not S.sentinel2_clear({"SCL": 0}, S.MASK_NONE)
+
+
+def test_sensor_years():
+    assert S.sensor_years("LND05", date(2010, 5, 1), date(2015, 1, 1)) == [2010, 2011, 2012]
+    assert S.sensor_years("LND09", date(2010, 1, 1), date(2020, 1, 1)) == []
+    assert S.sensor_years("SEN2B", date(2016, 1, 1), date(2018, 1, 1)) == [2017, 2018]
+
+
+def test_observations_dedupe_same_day():
+    cloudy = {"SCL": 9, "cs_cdf": 0.1, "NIR": 3000, "RED": 600}
+    clear = {"SCL": 4, "cs_cdf": 0.9, "NIR": 3000, "RED": 600}
+    rows = [
+        {"id": "a_T32UPU", "day": 100, "values": cloudy},
+        {"id": "a_T32UPV", "day": 100, "values": clear},   # overlapping granule
+        {"id": "b_T32UPU", "day": 105, "values": clear},
+        {"id": "c_T32UPU", "day": 200, "values": clear},   # outside the range
+    ]
+    images, points = observations("SEN2A", rows, 0, 150, "NDVI", S.MASK_DEFAULT)
+    assert images == 2
+    assert points == [[100, 6667, "SEN2A", "a_T32UPV"], [105, 6667, "SEN2A", "b_T32UPU"]]

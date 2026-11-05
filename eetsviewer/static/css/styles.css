@@ -1,0 +1,174 @@
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+#container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+#map {
+  width: 50%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+#info-panel {
+  width: 50%;
+  height: 100%;
+  padding: 1.5rem;
+  box-sizing: border-box;
+  border-left: 1px solid #ccc;
+  background-color: #f7f7f7;
+  font-family: sans-serif;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#info-panel h2 {
+  margin-top: 0;
+}
+
+#info-panel p {
+  margin: 0.4rem 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+
+#sGroups label {
+  margin-right: 0.6rem;
+  white-space: nowrap;
+}
+
+input.coord {
+  width: 8.5em;
+  font-family: monospace;
+}
+
+input.coord.invalid {
+  border-color: #b00020;
+  outline: 1px solid #b00020;
+}
+
+/* thin progress bar: animates width with the compositor, no layout jank */
+#progressWrap {
+  height: 4px;
+  background: #e2e2e2;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#progressWrap.active {
+  opacity: 1;
+}
+
+#progressBar {
+  height: 100%;
+  width: 100%;
+  background: rgb(197, 27, 138);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.2s linear;
+}
+
+#prog {
+  min-height: 1.2em;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+#prog.error {
+  color: #b00020;
+}
+
+#chartWrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 280px;
+}
+
+#chartWrap[hidden] {
+  display: none;
+}
+
+#stopButton:not(:disabled) {
+  cursor: pointer;
+  color: #fff;
+  background-color: #b00020;
+  border: 1px solid #8a0019;
+}
+
+.copybutton {
+  cursor: pointer;
+  transition: background-color 0.25s ease, color 0.25s ease, transform 0.25s ease;
+}
+
+.copybutton:disabled {
+  cursor: default;
+}
+
+/* Active "copied" state */
+.copybutton.copied {
+  background-color: #4CAF50;
+  color: white;
+  transform: scale(1.05);
+}
+
+.copybutton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+/* pulsing ring under the selected location while data is loading */
+.pulse {
+  animation: pulse 1.2s ease-out infinite;
+}
+
+@keyframes pulse {
+  0%   { stroke-opacity: 0.9; stroke-width: 2; }
+  100% { stroke-opacity: 0;   stroke-width: 14; }
+}
+
+@media (max-width: 800px) {
+  #container { flex-direction: column; height: auto; }
+  #map { width: 100%; height: 50vh; }
+  #info-panel { width: 100%; height: auto; border-left: none; border-top: 1px solid #ccc; }
+}
+
+#overlayRow {
+  border-top: 1px solid #ddd;
+  padding-top: 0.5rem;
+  font-size: 0.95rem;
+}
+
+#overlayRow .hint {
+  flex-basis: 100%;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+#overlayInfo {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #333;
+  word-break: break-all;
+}
+
+#overlayInfo.error {
+  color: #b00020;
+}
+
+#myChart {
+  cursor: pointer;
+}

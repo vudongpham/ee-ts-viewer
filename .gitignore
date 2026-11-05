@@ -1,0 +1,7 @@
+/temp/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+# never commit Earth Engine / Google credentials
+*.json
