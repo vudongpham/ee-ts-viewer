@@ -285,3 +285,93 @@ input.coord.invalid {
   background-color: #b00020;
   border: 1px solid #8a0019;
 }
+
+/* download block on the map (top right) */
+.download-box {
+  width: 270px;
+  max-width: calc(100vw - 80px);
+  box-sizing: border-box;
+  padding: 0.6rem 0.75rem 0.7rem;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+  font: 13px/1.35 sans-serif;
+  color: #222;
+  cursor: default;
+}
+
+.download-box[hidden] {
+  display: none;
+}
+
+.download-box .db-title {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 0.35rem;
+}
+
+.download-box .db-scene {
+  font-size: 15px;
+  font-weight: bold;
+  color: #111;
+}
+
+.download-box.empty .db-scene {
+  font-size: 13px;
+  font-weight: normal;
+  color: #666;
+}
+
+.download-box .db-id,
+.download-box .db-file {
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+  margin-top: 0.15rem;
+}
+
+.download-box .db-file {
+  color: rgb(35, 110, 55);
+}
+
+.download-box .db-file.error {
+  color: #b00020;
+}
+
+.download-box .db-options {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.download-box .db-options label {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 50%;
+  font-size: 12px;
+  color: #444;
+}
+
+.download-box select {
+  margin-top: 0.15rem;
+  width: 100%;
+}
+
+.download-box #downloadOverlay {
+  width: 100%;
+  padding: 0.3rem;
+  cursor: pointer;
+}
+
+.download-box #downloadOverlay:disabled {
+  cursor: default;
+}
+
+.download-box #exProgressWrap {
+  margin-top: 0.4rem;
+}
+
+.download-box #exportInfo {
+  margin-top: 0.3rem;
+  font-size: 12px;
+}

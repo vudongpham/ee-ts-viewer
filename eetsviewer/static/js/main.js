@@ -92,6 +92,20 @@ const OverlayStatus = L.Control.extend({
     return div;
   },
 });
+// the download block (#downloadBox in the page) lives on the map, top right
+const DownloadBox = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const div = $('downloadBox');
+    // clicks / scrolling inside the block must not reach the map
+    // (a map click would select a new location)
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  },
+});
+new DownloadBox().addTo(map);
+
 const overlayStatus = new OverlayStatus().addTo(map);
 
 function setOverlayProgress(text, fraction) {
@@ -200,10 +214,13 @@ Chart.Interaction.modes.nearestObservation = (chart, e) => {
   return best;
 };
 
-// the observation shown as map overlay is drawn larger
-function highlightRadius(ctx) {
-  return ctx.raw && ctx.raw === overlayPoint ? 9 : 5;
-}
+// the observation shown as map overlay is drawn larger, with a thick
+// bright-yellow edge that stands out against all point colours
+const SELECTED_EDGE = '#ffd400';
+const isSelected = (ctx) => !!ctx.raw && ctx.raw === overlayPoint;
+function highlightRadius(ctx) { return isSelected(ctx) ? 9 : 5; }
+function highlightEdge(ctx) { return isSelected(ctx) ? SELECTED_EDGE : 'rgb(0, 0, 0)'; }
+function highlightEdgeWidth(ctx) { return isSelected(ctx) ? 3 : 1; }
 
 const chart = new Chart($('myChart').getContext('2d'), {
   type: 'scatter',
@@ -213,40 +230,48 @@ const chart = new Chart($('myChart').getContext('2d'), {
         label: 'Landsat',
         data: [],
         pointRadius: highlightRadius,
-        pointHoverRadius: 8,
+        pointHoverRadius: (ctx) => (isSelected(ctx) ? 10 : 8),
         backgroundColor: COLORS.LND.face,
-        borderColor: COLORS.LND.edge,
-        borderWidth: 1,
+        borderColor: highlightEdge,
+        borderWidth: highlightEdgeWidth,
+        hoverBorderColor: highlightEdge,
+        hoverBorderWidth: highlightEdgeWidth,
         order: 1,
       },
       {
         label: 'Sentinel-2',
         data: [],
         pointRadius: highlightRadius,
-        pointHoverRadius: 8,
+        pointHoverRadius: (ctx) => (isSelected(ctx) ? 10 : 8),
         backgroundColor: COLORS.SEN.face,
-        borderColor: COLORS.SEN.edge,
-        borderWidth: 1,
+        borderColor: highlightEdge,
+        borderWidth: highlightEdgeWidth,
+        hoverBorderColor: highlightEdge,
+        hoverBorderWidth: highlightEdgeWidth,
         order: 2,
       },
       {
         label: 'HLS L30 (Landsat)',
         data: [],
         pointRadius: highlightRadius,
-        pointHoverRadius: 8,
+        pointHoverRadius: (ctx) => (isSelected(ctx) ? 10 : 8),
         backgroundColor: COLORS.HLSL30.face,
-        borderColor: COLORS.HLSL30.edge,
-        borderWidth: 1,
+        borderColor: highlightEdge,
+        borderWidth: highlightEdgeWidth,
+        hoverBorderColor: highlightEdge,
+        hoverBorderWidth: highlightEdgeWidth,
         order: 3,
       },
       {
         label: 'HLS S30 (Sentinel-2)',
         data: [],
         pointRadius: highlightRadius,
-        pointHoverRadius: 8,
+        pointHoverRadius: (ctx) => (isSelected(ctx) ? 10 : 8),
         backgroundColor: COLORS.HLSS30.face,
-        borderColor: COLORS.HLSS30.edge,
-        borderWidth: 1,
+        borderColor: highlightEdge,
+        borderWidth: highlightEdgeWidth,
+        hoverBorderColor: highlightEdge,
+        hoverBorderWidth: highlightEdgeWidth,
         order: 4,
       },
       {
@@ -554,7 +579,8 @@ function resetChart(startDate, endDate, band) {
 // draw the collected points (called once, when the extraction has ended)
 function showResults() {
   showChart(true);
-  $('overlayRow').classList.remove('waiting');   // overlay / download controls
+  $('overlayRow').classList.remove('waiting');   // overlay controls
+  $('downloadBox').hidden = false;                // download block on the map
   render();
 }
 
@@ -878,9 +904,57 @@ function setExportProgress(fraction) {
 function updateExportControls() {
   const running = exportBusy;
   const scene = !!overlayPoint;
+  updateSelectedInfo();
   $('downloadOverlay').disabled = !running && !scene;
   $('exportData').disabled = running || !scene;
   $('exportExtent').disabled = running || !scene;
+}
+
+// sensor code -> label shown in the sensor checkboxes (e.g. "Sentinel-2A")
+const SENSOR_LABELS = Object.fromEntries(
+  Array.from(document.querySelectorAll('input[name="selectedSensors"]'))
+    .map((el) => [el.value, el.parentElement.textContent.trim()]));
+
+let shownScene = null;     // scene + options the file name was fetched for
+let nameRequest = 0;
+
+// name of the selected image in the download block: sensor and date, the
+// Earth Engine image id and the name of the file the download will get
+function updateSelectedInfo() {
+  const box = $('downloadBox');
+  const p = overlayPoint;
+  box.classList.toggle('empty', !p);
+  if (!p) {
+    shownScene = null;
+    nameRequest++;
+    $('dbScene').textContent = 'No image selected: click an observation in the chart';
+    $('dbId').textContent = '';
+    setFileName('');
+    return;
+  }
+  $('dbScene').textContent = `${SENSOR_LABELS[p.s] || p.s} · ${fmtDate(p.x)}`;
+  $('dbId').textContent = p.id;
+  const mask = exportMask();
+  const key = `${p.s}/${p.id}/${mask}`;
+  if (key === shownScene) return;
+  shownScene = key;
+  const req = ++nameRequest;
+  setFileName('File: …');
+  const params = new URLSearchParams({ sensor: p.s, id: p.id, mask: mask == null ? 'raw' : mask });
+  fetch(`/export/name?${params}`)
+    .then((r) => r.json())
+    .then((d) => {
+      if (req !== nameRequest) return;
+      if (d.name) setFileName(`File: ${d.name}`);
+      else setFileName(`File name unavailable: ${d.error || 'unknown error'}`, true);
+    })
+    .catch((err) => { if (req === nameRequest) setFileName(`File name unavailable: ${err.message}`, true); });
+}
+
+function setFileName(text, isError) {
+  const el = $('dbFile');
+  el.textContent = text;
+  el.classList.toggle('error', !!isError);
 }
 
 function setExportRunning(on) {
@@ -998,4 +1072,10 @@ $('downloadOverlay').addEventListener('click', async () => {
   setExportInfo('Download cancelled');
   if (!jobId) return;                     // still preparing: startExport cancels it
   try { await fetch(`/export/${jobId}/cancel`, { method: 'POST' }); } catch (err) { /* ignore */ }
+});
+
+// the file name depends on Raw / Cloud masked and on the Cloud mask level
+$('exportData').addEventListener('change', updateSelectedInfo);
+document.querySelectorAll('input[name="cloudOption"]').forEach((el) => {
+  el.addEventListener('change', updateSelectedInfo);
 });

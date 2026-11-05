@@ -306,6 +306,23 @@ def export_start():
     return jsonify(exporter.start_export(plan).snapshot())
 
 
+@app.route("/export/name")
+def export_name_route():
+    """File name a download of this scene will get (shown in the download block)."""
+    exporter = load_exporter()
+    if exporter is None:
+        return jsonify({"error": f"GeoTIFF download is not available on this server: {_export_error}"}), 500
+    try:
+        mask = request.args.get("mask")
+        mask = None if mask in (None, "", "raw") else int(mask)
+        name = exporter.file_name(request.args.get("sensor"), request.args.get("id"), mask)
+    except (exporter.ExportError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Earth Engine error: {exc}"}), 502
+    return jsonify({"name": name})
+
+
 @app.route("/export/<job_id>")
 def export_status(job_id):
     job = _get_export_job(job_id)
