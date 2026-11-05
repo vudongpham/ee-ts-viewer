@@ -66,10 +66,11 @@ With `-t`, the terminal shows coloured output and a live progress bar; without i
 - Landsat points in magenta, Sentinel-2 in green, in both sensor groups
 - *Line*: linear interpolation, spline, moving average, Savitzky–Golay, RBF ensemble, harmonic regression (basic / advanced / full) or no line. The moving average, Savitzky–Golay and RBF adapt to the density of the clear observations and do not bridge long gaps. Switching is instant.
 - The y axis fits the data, between −10000 and 10000
-- *Copy dates array*, *Copy reflectance array* and *Download CSV* (with the image ID of every observation)
+- *PNG* / *JPEG* above the graph save it as an image (white background, 2 × screen resolution)
+- *Copy dates*, *Copy values* and *Download CSV* (with the image ID of every observation)
 - *Stop* cancels a running extraction; a new request also cancels the previous one
 
-**Scene overlay**: click an observation in the chart to show that scene on the map (true color, false color or SWIR, adjustable opacity). The selected observation gets a yellow edge.
+**Scene overlay**: click an observation in the chart to show that scene on the map (true color, false color or SWIR, adjustable opacity). The selected observation gets a yellow edge; without a selected scene the overlay settings are greyed out.
 
 **Download selected image**: the block at the top right of the map saves the overlaid scene as a GeoTIFF.
 - Shows the selected image (sensor, date, image ID, file name), its cloud cover (pixels removed by the selected cloud mask / valid pixels of the whole scene, in %) and the size of the download in pixels for the selected area, updated while you pan and zoom

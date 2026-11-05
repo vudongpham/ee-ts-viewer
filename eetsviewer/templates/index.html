@@ -139,23 +139,30 @@
       <p id="prog" aria-live="polite"></p>
 
       <section class="card chart-card" id="chartWrap" hidden>
+        <div class="chart-head">
+          <h2 class="card-title">Time series</h2>
+          <div class="chart-tools">
+            <button id="savePng" class="btn btn-ghost btn-small copybutton" title="Save the graph as a PNG image (white background, 2 × resolution)"><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>PNG</button>
+            <button id="saveJpeg" class="btn btn-ghost btn-small copybutton" title="Save the graph as a JPEG image (white background, 2 × resolution)"><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>JPEG</button>
+          </div>
+        </div>
         <!-- fixed-height box used only by the chart (Chart.js sizes the canvas to it) -->
         <div class="chart-box"><canvas id="myChart"></canvas></div>
       </section>
 
-      <!-- "waiting": only the hint is shown until the first graph is drawn -->
-      <section class="card waiting" id="overlayRow">
+      <!-- "inactive": greyed out (controls disabled) while no scene is selected -->
+      <section class="card inactive" id="overlayRow">
         <h2 class="card-title">Scene overlay</h2>
         <p class="hint">Click an observation in the chart to show that scene on the map.</p>
         <div class="ov-controls">
           <label class="field" for="visMode"><span>Display</span>
-            <select id="visMode">
+            <select id="visMode" disabled>
               <option value="true" selected>True color (R-G-B)</option>
               <option value="false">False color (NIR-R-G)</option>
               <option value="swir">SWIR (SWIR2-NIR-R)</option>
             </select>
           </label>
-          <label class="field"><span>Opacity</span><input id="opacity" type="range" min="0" max="1" step="0.05" value="1"></label>
+          <label class="field"><span>Opacity</span><input id="opacity" type="range" min="0" max="1" step="0.05" value="1" disabled></label>
           <button id="clearOverlay" class="btn btn-secondary" disabled>Remove overlay</button>
         </div>
         <div id="overlayInfo"></div>
