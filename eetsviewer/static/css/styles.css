@@ -47,6 +47,14 @@ html, body {
   flex-direction: column;
   gap: 12px;
   accent-color: var(--accent);
+  /* no automatic scroll adjustment when the chart appears */
+  overflow-anchor: none;
+}
+
+/* nothing in the panel is squeezed to fit its height: the panel scrolls
+   instead (a squeezed chart card let the chart spill over the cards) */
+#info-panel > * {
+  flex: none;
 }
 
 /* header */
@@ -308,10 +316,13 @@ input.coord.invalid {
 
 /* chart */
 .chart-card {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 300px;
   padding: 10px 10px 6px;
+}
+
+/* explicit height: the chart never depends on the flexible layout around it */
+.chart-box {
+  position: relative;
+  height: clamp(300px, 45vh, 520px);
 }
 
 #myChart { cursor: pointer; }

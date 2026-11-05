@@ -540,6 +540,17 @@ function showChart(on) {
   if (on) chart.resize();
 }
 
+// after "View time series", bring the chart into view if it is outside
+// the visible part of the panel
+function revealChart() {
+  const panel = $('info-panel');
+  const box = $('chartWrap').getBoundingClientRect();
+  const view = panel.getBoundingClientRect();
+  if (box.top < view.top || box.bottom > view.bottom) {
+    $('chartWrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
 function resetChart(startDate, endDate, band) {
   series = [];
   // drop any hovered point of the previous location: its index may not exist
@@ -560,6 +571,7 @@ function showResults() {
   $('overlayRow').classList.remove('waiting');   // overlay controls
   $('downloadBox').hidden = false;                // download block on the map
   render();
+  revealChart();
 }
 
 // ---------------------------------------------------------------------------
