@@ -1,7 +1,11 @@
 'use strict';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const Y_MAX = 10000;      // top of the y axis
+// y axis: 110 % of the highest / lowest value (rounded outwards to 100),
+// cut off at +/-10000 (reflectance / index x 10000)
+const Y_LIMIT = 10000;
+const Y_PAD = 1.1;
+const Y_ROUND = 100;
 const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'TCB', 'TCG', 'TCW']);
 const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
 const POLL_MS = 120;          // status poll interval while a job is running
@@ -75,12 +79,63 @@ function setOverlayInfo(text, isError) {
   el.classList.toggle('error', !!isError);
 }
 
+// Progress of the overlay: a box on the map and a bar under the chart.
+// Step 1 is the Earth Engine request for the scene (no percentage known),
+// step 2 the tiles that Earth Engine renders for the current view.
+const OverlayStatus = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const div = L.DomUtil.create('div', 'overlay-status');
+    div.hidden = true;
+    div.innerHTML = '<span class="spinner"></span><span class="text"></span>';
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  },
+});
+const overlayStatus = new OverlayStatus().addTo(map);
+
+function setOverlayProgress(text, fraction) {
+  const box = overlayStatus.getContainer();
+  const wrap = $('ovProgressWrap');
+  const bar = $('ovProgressBar');
+  if (text == null) {
+    box.hidden = true;
+    wrap.classList.remove('active', 'indeterminate');
+    bar.style.transform = 'scaleX(0)';
+    return;
+  }
+  box.hidden = false;
+  box.querySelector('.text').textContent = text;
+  wrap.classList.add('active');
+  wrap.classList.toggle('indeterminate', fraction == null);
+  bar.style.transform = `scaleX(${fraction == null ? 1 : fraction})`;
+}
+
+// count the tiles of the overlay layer while they load
+function trackTiles(layer, what) {
+  let total = 0, done = 0, failed = 0;
+  const update = () => {
+    const pct = total ? Math.round((100 * done) / total) : 0;
+    setOverlayProgress(`Rendering ${what}: ${pct} % (${done} / ${total} tiles)`, total ? done / total : 0);
+  };
+  layer.on('loading', () => { total = 0; done = 0; failed = 0; update(); });
+  layer.on('tileloadstart', () => { total++; update(); });
+  layer.on('tileload', () => { done++; update(); });
+  layer.on('tileerror', () => { done++; failed++; update(); });
+  layer.on('load', () => {
+    setOverlayProgress(null);
+    if (layer !== overlay) return;
+    if (failed) setOverlayInfo(`${what}: ${failed} of ${total} tiles failed to load`, true);
+  });
+}
+
 function removeOverlay() {
   overlayRequest++;
   overlayPoint = null;
   if (overlay) { map.removeLayer(overlay); overlay = null; }
   $('clearOverlay').disabled = true;
   setOverlayInfo('');
+  setOverlayProgress(null);
   chart.update('none');
 }
 
@@ -90,6 +145,7 @@ async function showOverlay(p) {
   $('clearOverlay').disabled = false;
   const what = `${p.s} ${fmtDate(p.x)}`;
   setOverlayInfo(`Loading ${what}…`);
+  setOverlayProgress(`Requesting ${what} from Earth Engine…`, null);
   chart.update('none');
   try {
     const params = new URLSearchParams({ sensor: p.s, id: p.id, vis: $('visMode').value });
@@ -97,18 +153,20 @@ async function showOverlay(p) {
     const d = await r.json();
     if (req !== overlayRequest) return;
     if (!d.url) throw new Error(d.error || 'no tile url');
-    if (overlay) {
-      overlay.setUrl(d.url);
-    } else {
-      overlay = L.tileLayer(d.url, {
-        maxZoom: 19, opacity: Number($('opacity').value), zIndex: 10,
-        attribution: 'Imagery: Google Earth Engine (Copernicus Sentinel-2 / USGS Landsat / NASA HLS)',
-      }).addTo(map);
-    }
+    // a new layer per scene, so tile events of the previous scene cannot
+    // be mixed into the progress of this one
+    if (overlay) map.removeLayer(overlay);
+    overlay = L.tileLayer(d.url, {
+      maxZoom: 19, opacity: Number($('opacity').value), zIndex: 10,
+      attribution: 'Imagery: Google Earth Engine (Copernicus Sentinel-2 / USGS Landsat / NASA HLS)',
+    });
+    trackTiles(overlay, what);
+    overlay.addTo(map);
     setOverlayInfo(`${what} · ${p.id}`);
   } catch (err) {
     if (req !== overlayRequest) return;
     console.error('Overlay failed:', err);
+    setOverlayProgress(null);
     setOverlayInfo(`Could not load ${what}: ${err.message}`, true);
   }
 }
@@ -130,7 +188,8 @@ Chart.Interaction.modes.nearestObservation = (chart, e) => {
     if (di === LINE_DS || !chart.isDatasetVisible(di)) return;
     chart.getDatasetMeta(di).data.forEach((el, index) => {
       if (!el || el.skip) return;
-      if (el.y < chart.chartArea.top) return;   // above the top of the axis: not visible
+      const area = chart.chartArea;
+      if (el.y < area.top || el.y > area.bottom) return;   // cut off: not visible
       const d = Math.abs(el.x - pos.x);
       if (d < bestDist) { bestDist = d; best = [{ element: el, datasetIndex: di, index }]; }
       else if (d === bestDist) best.push({ element: el, datasetIndex: di, index });
@@ -453,13 +512,22 @@ function render() {
   for (let i = 0; i < LINE_DS; i++) chart.setDatasetVisibility(i, HLS_DS.includes(i) === harmonized);
   applyLineMode(ds[LINE_DS]);
 
-  const ys = series.map((p) => p.y);
-  const minY = ys.length ? Math.min(...ys) : 0;
-  chart.options.scales.y.min = minY < 0 ? minY - 300 : 0;
-  // fixed top at 10000 (reflectance / index x 10000), so series are
-  // comparable between locations; values above it are cut off
-  chart.options.scales.y.max = Y_MAX;
+  const { min, max } = axisRange(series.map((p) => p.y));
+  chart.options.scales.y.min = min;
+  chart.options.scales.y.max = max;
   chart.update();
+}
+
+// Axis range: 0 .. 110 % of the highest value for positive data, down to
+// 110 % of the lowest value when there are negative values. Values beyond
+// +/-10000 are cut off (they are not drawn and cannot be hovered).
+function axisRange(ys) {
+  if (!ys.length) return { min: 0, max: Y_LIMIT };
+  let lo = Infinity, hi = -Infinity;
+  for (const y of ys) { if (y < lo) lo = y; if (y > hi) hi = y; }
+  const max = hi > 0 ? Math.min(Y_LIMIT, Math.ceil((hi * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
+  const min = lo < 0 ? Math.max(-Y_LIMIT, Math.floor((lo * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
+  return { min, max: max > min ? max : min + Y_ROUND };
 }
 
 function showChart(on) {
