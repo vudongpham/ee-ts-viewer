@@ -99,7 +99,8 @@ Then open `http://localhost:2742` in any web browser.
 - `--project`: Google Cloud project used for Earth Engine. Default: `$EE_PROJECT`, or the `project_id` of the service account key
 - `--key`: service account JSON key. Default: `$EE_SERVICE_ACCOUNT_KEY`
 - `--high-volume`: use the Earth Engine [high-volume endpoint](https://developers.google.com/earth-engine/guides/processing_environments#high-volume_endpoint)
-- `-p` | `--port`: Local port used to host the app. Default: `2742`. If you change it, change the docker `-p` to match
+- `-p` | `--port`: Port the app listens on. Default: `2742`. With Docker you can keep it and change only the host side of `docker run -p`, e.g. `-p 8080:2742`
+- `--host-port`: Port shown as *Open in browser* at start-up when it differs from `--port`, e.g. the host port of `docker run -p 8080:2742`. Default: `$HOST_PORT`, so with Docker add `-e HOST_PORT=8080`
 - `-w` | `--workers`: Number of parallel Earth Engine requests. Default: `12`
 - `--log-requests`: also log every HTTP request (off by default)
 - `--debug`: Run Flask in debug mode

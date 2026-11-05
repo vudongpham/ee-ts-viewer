@@ -442,6 +442,24 @@ def export_file(job_id):
     })
 
 
+def in_container():
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def browser_address(port, host_port=None):
+    """Address shown in the banner. Inside a container the app cannot see
+    which host port `docker run -p` maps to its port, so it has to be told
+    (--host-port / HOST_PORT); otherwise the banner says so."""
+    if host_port:
+        return console.style(f"http://localhost:{host_port}", "bold")
+    url = console.style(f"http://localhost:{port}", "bold")
+    if in_container():
+        return url + console.style(
+            f"  (port inside the container: if you mapped another port with "
+            f"docker -p PORT:{port}, open that one, or pass -e HOST_PORT=PORT to show it here)", "dim")
+    return url
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="eetsviewer",
@@ -455,7 +473,13 @@ def main():
                              "Without it the credentials of `earthengine authenticate` are used.")
     parser.add_argument("--high-volume", action="store_true",
                         help="Use the Earth Engine high-volume endpoint")
-    parser.add_argument("-p", "--port", default=2742, type=int, help="Local port. Default: 2742")
+    parser.add_argument("-p", "--port", default=2742, type=int,
+                        help="Port the app listens on (inside the container). Default: 2742")
+    parser.add_argument("--host-port", type=int,
+                        default=int(os.environ["HOST_PORT"]) if os.environ.get("HOST_PORT", "").isdigit() else None,
+                        help="Port to open in the browser, if it differs from --port, e.g. the host "
+                             "port of `docker run -p HOST_PORT:2742` (default: $HOST_PORT). "
+                             "Only used for the address shown at start-up.")
     parser.add_argument("-w", "--workers", type=int, default=DEFAULT_WORKERS,
                         help=f"Number of parallel Earth Engine requests. Default: {DEFAULT_WORKERS}")
     parser.add_argument("--debug", action="store_true", help="Run Flask in debug mode")
@@ -486,7 +510,7 @@ def main():
 
     app.config["WORKERS"] = max(1, args.workers)
     console.banner([
-        ("Open in browser", console.style(f"http://localhost:{args.port}", "bold")),
+        ("Open in browser", browser_address(args.port, args.host_port)),
         ("Earth Engine", f"project {project}" + (" · high-volume endpoint" if args.high_volume else "")),
         ("Credentials", who),
         ("Parallel requests", str(app.config["WORKERS"])),
