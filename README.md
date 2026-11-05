@@ -43,6 +43,7 @@ docker run --rm -t -e HOST_PORT=8080 \
 - `--high-volume`: use the Earth Engine high-volume endpoint
 - `-p` | `--port`: port the app listens on. Default: `2742`
 - `--host-port`: port shown in the start-up message. Default: `$HOST_PORT`
+- `--cloudmask-buffered-download`: grow the cloud mask by this many native pixels (10 m Sentinel-2, 30 m Landsat / HLS) in cloud-masked downloads; `0` = no buffer. Default: `2`
 - `--log-requests`: also log every HTTP request
 - `--debug`: run Flask in debug mode
 

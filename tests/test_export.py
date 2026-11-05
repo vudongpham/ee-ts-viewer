@@ -60,7 +60,7 @@ def test_export_routes(monkeypatch):
     monkeypatch.setattr(ex, "export_image", lambda *a: None)
     monkeypatch.setattr(ex, "fetch_block", fake_fetch)
     monkeypatch.setattr(ex, "plan_export",
-                        lambda sensor, image_id, extent, bounds, mask=None: make_plan("LND08", 300, 200))
+                        lambda sensor, image_id, extent, bounds, mask=None, buffer=0: make_plan("LND08", 300, 200))
     client = appmod.app.test_client()
     d = client.post("/export", json={"sensor": "LND08", "id": "LC08_193023_20240212",
                                      "extent": "view", "bounds": [13, 52, 14, 53]}).get_json()
@@ -382,3 +382,74 @@ def test_scene_info(monkeypatch):
     r = client.get("/export/scene?sensor=HLSS30&id=T32UQD_20240212T101019").get_json()
     assert r["bands"] == 13 and r["resolution"] == 30
     assert client.get("/export/scene?sensor=LND08&id=../x").status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Cloud mask buffer for cloud-masked downloads
+# ---------------------------------------------------------------------------
+
+class NpBool:
+    """ee.Image stand-in (0/1 values) for buffer_mask."""
+
+    def __init__(self, v):
+        self.v = np.asarray(v, dtype=bool)
+
+    def And(self, o): return NpBool(self.v & o.v)
+    def Not(self): return NpBool(~self.v)
+    def unmask(self, value): return self
+
+    def focalMax(self, radius, kernelType, units):
+        assert kernelType == "circle" and units == "pixels"
+        out = np.zeros_like(self.v)
+        h, w = self.v.shape
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                if dx * dx + dy * dy > radius * radius:
+                    continue
+                shifted = np.zeros_like(self.v)
+                ys, xs = slice(max(0, dy), h + min(0, dy)), slice(max(0, dx), w + min(0, dx))
+                yd, xd = slice(max(0, -dy), h + min(0, -dy)), slice(max(0, -dx), w + min(0, -dx))
+                shifted[ys, xs] = self.v[yd, xd]
+                out |= shifted
+        return NpBool(out)
+
+
+def test_buffer_mask_grows_only_masked_pixels():
+    valid = np.ones((11, 11), bool)
+    valid[:, :2] = False                      # fill (outside the scene) on the left
+    clear = valid.copy()
+    clear[5, 6] = False                       # one cloudy pixel
+    out = ex.buffer_mask(NpBool(valid), NpBool(clear), 2).v
+    removed = valid & ~out
+    yy, xx = np.mgrid[0:11, 0:11]
+    disk = (yy - 5) ** 2 + (xx - 6) ** 2 <= 4
+    assert np.array_equal(removed, disk & valid)          # a 2-pixel disk around the cloud
+    assert not out[:, :2].any()                            # fill stays fill, not grown
+    assert out[0, 2] and out[10, 10]                       # far from the cloud: kept
+    # the fill area itself does not grow into the scene
+    assert out[:, 2:].sum() == valid[:, 2:].sum() - disk.sum()
+    # no buffer: the mask is returned unchanged
+    assert ex.buffer_mask(NpBool(valid), NpBool(clear), 0).v is clear or \
+        np.array_equal(ex.buffer_mask(NpBool(valid), NpBool(clear), 0).v, clear)
+
+
+def test_buffer_option_reaches_the_download(monkeypatch):
+    seen = {}
+
+    def plan(sensor, image_id, extent, bounds, mask=None, buffer=0):
+        seen.update(mask=mask, buffer=buffer)
+        raise ex.ExportError("stop here")
+
+    monkeypatch.setattr(ex, "plan_export", plan)
+    client = appmod.app.test_client()
+    monkeypatch.setitem(appmod.app.config, "CLOUD_BUFFER", 3)
+    client.post("/export", json={"sensor": "LND08", "id": "LC08_193023_20240212", "mask": 1})
+    assert seen == {"mask": 1, "buffer": 3}
+    assert appmod.DEFAULT_CLOUD_BUFFER == ex.DEFAULT_CLOUD_BUFFER == 2
+
+
+def test_original_download_has_no_buffer(monkeypatch):
+    monkeypatch.setattr(ex, "ee", FakeEE(s2_info()))
+    sid = "20240212T101021_20240212T101019_T32UQD"
+    assert ex.plan_export("SEN2A", sid, "scene", mask=None, buffer=2).buffer == 0
+    assert ex.plan_export("SEN2A", sid, "scene", mask=1, buffer=2).buffer == 2

@@ -28,6 +28,7 @@ app = Flask(
 # They are network bound, so a thread pool runs them in parallel. Earth
 # Engine limits concurrent requests per project, so do not go too high.
 DEFAULT_WORKERS = 12
+DEFAULT_CLOUD_BUFFER = 2   # pixels; same as export.DEFAULT_CLOUD_BUFFER
 executor = None
 
 
@@ -258,7 +259,8 @@ def start_job(job, lat, lng, start_date, end_date, sensors, band, cloud_mask):
 
 @app.route("/")
 def index():
-    return render_template("index.html", sensors=SENSORS, groups=SENSOR_GROUPS)
+    return render_template("index.html", sensors=SENSORS, groups=SENSOR_GROUPS,
+                           cloud_buffer=app.config.get("CLOUD_BUFFER", DEFAULT_CLOUD_BUFFER))
 
 
 @app.route("/sendData", methods=["POST"])
@@ -365,7 +367,8 @@ def export_start():
         mask = data.get("mask")             # None = raw, 1 = Default, 2 = Aggressive
         mask = None if mask in (None, "", "raw") else int(mask)
         plan = exporter.plan_export(data.get("sensor"), data.get("id"),
-                                    data.get("extent", "view"), data.get("bounds"), mask)
+                                    data.get("extent", "view"), data.get("bounds"), mask,
+                                    app.config.get("CLOUD_BUFFER", DEFAULT_CLOUD_BUFFER))
     except (TypeError, ValueError) as exc:
         return jsonify({"status": "error", "error": f"Bad request: {exc}"}), 400
     except exporter.ExportError as exc:
@@ -513,9 +516,16 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=DEFAULT_WORKERS,
                         help=f"Number of parallel Earth Engine requests. Default: {DEFAULT_WORKERS}")
     parser.add_argument("--debug", action="store_true", help="Run Flask in debug mode")
+    parser.add_argument("--cloudmask-buffered-download", type=int, default=DEFAULT_CLOUD_BUFFER,
+                        metavar="PIXELS",
+                        help="Grow the cloud mask by this many native pixels (10 m Sentinel-2, 30 m "
+                             "Landsat / HLS) in cloud-masked downloads; 0 = no buffer. "
+                             f"Default: {DEFAULT_CLOUD_BUFFER}")
     parser.add_argument("--log-requests", action="store_true",
                         help="Also log every HTTP request (off by default to keep the output readable)")
     args = parser.parse_args()
+    if args.cloudmask_buffered_download < 0:
+        parser.error("--cloudmask-buffered-download must be 0 or more pixels")
 
     console.line("…", "Earth Engine", "connecting…")
     try:
@@ -539,11 +549,14 @@ def main():
         who = "your Google account (earthengine authenticate)"
 
     app.config["WORKERS"] = max(1, args.workers)
+    app.config["CLOUD_BUFFER"] = args.cloudmask_buffered_download
     console.banner([
         ("Open in browser", browser_address(args.port, args.host_port)),
         ("Earth Engine", f"project {project}" + (" · high-volume endpoint" if args.high_volume else "")),
         ("Credentials", who),
         ("Parallel requests", str(app.config["WORKERS"])),
+        ("Cloud mask buffer", f"{app.config['CLOUD_BUFFER']} px (cloud-masked downloads)"
+                              if app.config["CLOUD_BUFFER"] else "off (cloud-masked downloads)"),
     ])
     if not console._tty:
         console.line(" ", "", console.style(
