@@ -1222,7 +1222,7 @@ async function startExport() {
 
 function exportStatus(d) {
   if (d.job !== exportJob) return;
-  const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]})` : 'original';
+  const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]}${d.buffer ? `, +${d.buffer} px buffer` : ''})` : 'original';
   if (d.status === 'running') {
     const pct = d.total ? Math.round((100 * d.current) / d.total) : 0;
     setExportProgress(d.total ? d.current / d.total : 0);

@@ -188,7 +188,7 @@
     <div class="db-section">
       <div class="db-options">
         <label for="exportData"><span>Data</span>
-          <select id="exportData" disabled title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected) are set to nodata = -9999">
+          <select id="exportData" disabled title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected){% if cloud_buffer %}, grown by {{ cloud_buffer }} pixel{{ 's' if cloud_buffer != 1 }},{% endif %} are set to nodata = -9999">
             <option value="raw" selected>Original</option>
             <option value="masked">Cloud masked</option>
           </select>

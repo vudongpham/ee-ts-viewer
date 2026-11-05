@@ -52,7 +52,8 @@ class Plan:
         s = SENSORS[sensor]
         self.sensor = sensor
         self.image_id = image_id
-        self.mask = mask                  # None = raw, else MASK_DEFAULT / MASK_AGGRESSIVE
+        self.mask = mask                  # None = original, else MASK_DEFAULT / MASK_AGGRESSIVE
+        self.buffer = 0                   # pixels the cloud mask is grown by (masked only)
         self.crs = crs                    # dict with 'crs' (EPSG code) or 'wkt'
         self.transform = transform        # rasterio Affine of the output grid
         self.width = width
@@ -174,17 +175,37 @@ def clear_mask(sensor, scene, image_id, level):
     return ok
 
 
-def export_image(sensor, image_id, mask=None):
+DEFAULT_CLOUD_BUFFER = 2   # pixels; set with --cloudmask-buffered-download
+
+
+def buffer_mask(valid, clear, radius):
+    """Grow the masked area of `clear` by `radius` native pixels.
+
+    Only pixels removed by the cloud mask (valid but not clear: clouds,
+    shadows, snow, ...) grow, with a circular kernel; fill / no-data areas
+    do not. Returns the new clear mask (1 = keep)."""
+    if not radius:
+        return clear
+    masked = valid.And(clear.Not()).unmask(0)
+    grown = masked.focalMax(radius=radius, kernelType="circle", units="pixels")
+    return valid.And(grown.Not())
+
+
+def export_image(sensor, image_id, mask=None, buffer=0):
     """Earth Engine expression of the exported bands: int16, reflectance
     x 10000 (the same scale as the time series), masked pixels = -9999.
 
-    mask: None for the raw scene, or MASK_DEFAULT / MASK_AGGRESSIVE to set
-    cloudy pixels to nodata as well."""
+    mask: None for the original scene, or MASK_DEFAULT / MASK_AGGRESSIVE to
+    set cloudy pixels to nodata as well, after growing the masked areas by
+    `buffer` native pixels."""
     s = SENSORS[sensor]
     scene = ee.Image(f"{s['collection']}/{image_id}")
     img = scene.select([b for b, _ in s["export"]])
     if mask is not None:
-        img = img.updateMask(clear_mask(sensor, scene, image_id, mask))
+        keep = clear_mask(sensor, scene, image_id, mask)
+        if buffer:
+            keep = buffer_mask(clear_mask(sensor, scene, image_id, 0), keep, buffer)
+        img = img.updateMask(keep)
     if s["family"] == "LND":
         img = img.multiply(LANDSAT_GAIN).add(LANDSAT_OFFSET)
     elif s["family"] == "HLS":
@@ -303,7 +324,7 @@ def file_name(sensor, image_id, mask=None):
     return export_name(sensor, _yyyymmdd(meta["time"]), meta.get("source"), mask)
 
 
-def plan_export(sensor, image_id, extent, view_bounds=None, mask=None):
+def plan_export(sensor, image_id, extent, view_bounds=None, mask=None, buffer=0):
     """Work out the output grid. One Earth Engine round trip.
 
     extent: "scene" (footprint of the scene) or "view" (the part of the
@@ -356,7 +377,9 @@ def plan_export(sensor, image_id, extent, view_bounds=None, mask=None):
                           f"at most {MAX_SIDE} x {MAX_SIDE}): zoom in")
 
     date = _yyyymmdd(info["time"])
-    return Plan(sensor, image_id, crs, transform, width, height, date, info.get("source"), mask)
+    plan = Plan(sensor, image_id, crs, transform, width, height, date, info.get("source"), mask)
+    plan.buffer = int(buffer or 0) if mask is not None else 0
+    return plan
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +441,7 @@ class ExportJob:
                 "job": self.id, "status": self.status, "error": self.error,
                 "current": self.current, "total": self.total, "name": self.plan.name,
                 "width": self.plan.width, "height": self.plan.height,
-                "bands": len(self.plan.bands), "mask": self.plan.mask,
+                "bands": len(self.plan.bands), "mask": self.plan.mask, "buffer": self.plan.buffer,
                 "elapsed": round((self.finished or time.time()) - self.started, 2),
             }
 
@@ -460,7 +483,7 @@ def run_export(job, fetch=None):
     fetch = fetch or fetch_block
     pool = ThreadPoolExecutor(EXPORT_WORKERS, thread_name_prefix="export")
     try:
-        expression = export_image(plan.sensor, plan.image_id, plan.mask)
+        expression = export_image(plan.sensor, plan.image_id, plan.mask, plan.buffer)
         with rasterio.open(job.path, "w", **_profile(plan)) as dst:
             for i, desc in enumerate(plan.descriptions, start=1):
                 dst.set_band_description(i, desc)
@@ -501,7 +524,8 @@ MASK_KINDS = {None: "original", MASK_DEFAULT: "cloud masked (Default)",
 
 def report_started(job):
     p = job.plan
-    console.info("Download", f"{p.name} · {MASK_KINDS.get(p.mask, p.mask)} · "
+    kind = MASK_KINDS.get(p.mask, p.mask) + (f", +{p.buffer} px buffer" if p.buffer else "")
+    console.info("Download", f"{p.name} · {kind} · "
                              f"{p.width} × {p.height} px · {len(p.bands)} bands "
                              + console.style(f"({job.total} blocks)", "grey"))
 
