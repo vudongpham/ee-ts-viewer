@@ -15,7 +15,7 @@ setup(
             "static/**/*",
         ]
     },
-    python_requires=">=3.9",
+    python_requires=">=3.11",
     entry_points={
         "console_scripts": [
             "eetsviewer=eetsviewer.app:main",
