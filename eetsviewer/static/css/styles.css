@@ -316,8 +316,32 @@ input.coord.invalid {
 
 /* chart */
 .chart-card {
-  padding: 10px 10px 6px;
+  padding: 8px 10px 6px;
 }
+
+/* title and image buttons above the chart */
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-left: 4px;
+}
+
+.chart-head .card-title { margin: 0; }
+
+.chart-tools { display: flex; gap: 2px; }
+
+.btn-small {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.btn-icon { width: 14px; height: 14px; flex: none; }
 
 /* explicit height: the chart never depends on the flexible layout around it */
 .chart-box {
@@ -342,10 +366,13 @@ input.coord.invalid {
   margin-top: 10px;
 }
 
-/* before the first graph only the title and the hint are shown */
-#overlayRow.waiting .ov-controls,
-#overlayRow.waiting #overlayInfo,
-#overlayRow.waiting #ovProgressWrap { display: none; }
+/* no scene selected: the card is greyed out and its controls disabled;
+   only the hint is fully visible */
+#overlayRow { transition: background-color 0.2s ease; }
+#overlayRow.inactive { background: #f9fafb; }
+#overlayRow.inactive .card-title { color: #9ca3af; }
+#overlayRow.inactive .ov-controls { opacity: 0.45; }
+#overlayRow:not(.inactive) .hint { display: none; }
 
 #opacity { width: 100%; height: 34px; margin: 0; }
 

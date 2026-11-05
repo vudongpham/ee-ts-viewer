@@ -568,7 +568,6 @@ function resetChart(startDate, endDate, band) {
 // draw the collected points (called once, when the extraction has ended)
 function showResults() {
   showChart(true);
-  $('overlayRow').classList.remove('waiting');   // overlay controls
   $('downloadBox').hidden = false;                // download block on the map
   render();
   revealChart();
@@ -803,12 +802,13 @@ $('stopButton').addEventListener('click', async () => {
 
 // export buttons: one listener each, reading the *current* data on click
 function flash(button, text) {
-  const original = button.dataset.label || button.textContent;
-  button.dataset.label = original;
+  // keep the original content (text and icon) to restore it
+  const original = button.dataset.html || button.innerHTML;
+  button.dataset.html = original;
   button.textContent = text;
   button.classList.add('copied');
   setTimeout(() => {
-    button.textContent = original;
+    button.innerHTML = original;
     button.classList.remove('copied');
   }, 1000);
 }
@@ -824,6 +824,49 @@ async function copyArray(button, values) {
 
 $('copyXbutton').addEventListener('click', (e) => copyArray(e.currentTarget, series.map((p) => p.d)));
 $('copyYbutton').addEventListener('click', (e) => copyArray(e.currentTarget, series.map((p) => p.y)));
+
+// Save the graph as an image: drawn once more at (at least) 2 x resolution
+// on a white background, then the chart goes back to screen resolution.
+const IMAGE_SCALE = 2;
+
+function exportBaseName() {
+  const o = readOptions();
+  return `eetsviewer_${o.lat}_${o.lng}_${o.band}_${o.startDate}_${o.endDate}`;
+}
+
+function saveChartImage(format, button) {
+  const type = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+  const previous = chart.options.devicePixelRatio;
+  // no tooltip or hover highlight in the image
+  chart.setActiveElements([]);
+  chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+  chart.options.devicePixelRatio = Math.max(IMAGE_SCALE, window.devicePixelRatio || 1);
+  chart.resize();
+  chart.update('none');
+  const out = document.createElement('canvas');
+  out.width = chart.canvas.width;
+  out.height = chart.canvas.height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(chart.canvas, 0, 0);
+  // back to screen resolution
+  chart.options.devicePixelRatio = previous;
+  chart.resize();
+  chart.update('none');
+  out.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${exportBaseName()}.${format === 'jpeg' ? 'jpg' : 'png'}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    flash(button, 'Saved!');
+  }, type, 0.95);
+}
+
+$('savePng').addEventListener('click', (e) => saveChartImage('png', e.currentTarget));
+$('saveJpeg').addEventListener('click', (e) => saveChartImage('jpeg', e.currentTarget));
 
 $('csvButton').addEventListener('click', (e) => {
   const o = readOptions();
@@ -914,9 +957,19 @@ function setExportProgress(fraction) {
 
 // Download controls: usable only while a scene is overlaid. While a
 // download runs, the button cancels it and the options are locked.
+// Scene overlay card: greyed out with disabled controls while no scene is
+// selected (like the download card)
+function updateOverlayCard() {
+  const scene = !!overlayPoint;
+  $('overlayRow').classList.toggle('inactive', !scene);
+  $('visMode').disabled = !scene;
+  $('opacity').disabled = !scene;
+}
+
 function updateExportControls() {
   const running = exportBusy;
   const scene = !!overlayPoint;
+  updateOverlayCard();
   updateSelectedInfo();
   $('downloadOverlay').disabled = !running && !scene;
   $('exportData').disabled = running || !scene;
