@@ -41,3 +41,19 @@ def test_bad_request():
                                        "endDate": "2020-02-01"})
     assert r.status_code == 400
     assert client.get("/tiles?sensor=LND08&id=../x").status_code == 400
+
+
+def test_empty_collection_is_not_an_error(monkeypatch):
+    import ee
+
+    class FakeCol:
+        def getRegion(self, *a, **k):
+            return self
+
+    def raise_empty(obj, retries=4):
+        raise ee.EEException("ImageCollection.getRegion: No bands in collection.")
+
+    monkeypatch.setattr(eeapi.ee.Geometry, "Point", lambda *a, **k: None)
+    monkeypatch.setattr(eeapi, "build_collection", lambda *a, **k: FakeCol())
+    monkeypatch.setattr(eeapi, "_get_info", raise_empty)
+    assert eeapi.fetch_year("SEN2C", 13.4, 52.5, 2024) == []
