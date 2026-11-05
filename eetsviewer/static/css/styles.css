@@ -375,3 +375,17 @@ input.coord.invalid {
   margin-top: 0.3rem;
   font-size: 12px;
 }
+
+/* "Blank" base map: white background instead of tiles */
+#map.blank-map {
+  background: #fff;
+}
+
+/* base map switcher (top left, under the zoom buttons) */
+.leaflet-control-layers {
+  font: 13px/1.4 sans-serif;
+}
+
+.leaflet-control-layers-expanded {
+  padding: 0.35rem 0.6rem 0.35rem 0.4rem;
+}
