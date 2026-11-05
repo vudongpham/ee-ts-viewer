@@ -10,7 +10,7 @@ from datetime import date
 from flask import Flask, jsonify, render_template, request
 
 from . import earthengine as eeapi
-from .sensors import ALL_BANDS, SENSORS, compute_value, is_clear, sensor_years
+from .sensors import ALL_BANDS, SENSOR_GROUPS, SENSORS, compute_value, is_clear, sensor_years
 
 app = Flask(
     __name__,
@@ -188,7 +188,7 @@ def start_job(job, lat, lng, start_date, end_date, sensors, band, cloud_mask):
 
 @app.route("/")
 def index():
-    return render_template("index.html", sensors=SENSORS)
+    return render_template("index.html", sensors=SENSORS, groups=SENSOR_GROUPS)
 
 
 @app.route("/sendData", methods=["POST"])
@@ -203,6 +203,8 @@ def send_data():
         if band not in ALL_BANDS:
             raise ValueError(f"unknown band {band}")
         sensors = [s for s in (data.get("sensorList") or []) if s in SENSORS]
+        if len({SENSORS[s]["group"] for s in sensors}) > 1:
+            raise ValueError("individual and harmonized sensors cannot be mixed")
         cloud_mask = int(data.get("cloudMask", 1))
         start_date = data["startDate"]
         end_date = data["endDate"]

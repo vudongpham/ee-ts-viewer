@@ -14,7 +14,7 @@ from datetime import date
 # Sentinel-2 only.
 REFLECTANCE_BANDS = ("BLUE", "GREEN", "RED", "RE1", "RE2", "RE3", "BNIR", "NIR", "SWIR1", "SWIR2")
 SEN2_ONLY = ("RE1", "RE2", "RE3", "BNIR")
-INDICES = ("NDVI", "EVI", "NBR", "NDMI", "NDWI")
+INDICES = ("NDVI", "EVI", "NBR", "NDMI", "NDWI", "TCB", "TCG", "TCW")
 ALL_BANDS = REFLECTANCE_BANDS + INDICES
 
 # ---------------------------------------------------------------------------
@@ -40,26 +40,40 @@ S2_BANDS = {
 }
 S2_QA = {"SCL": "SCL"}  # cs_cdf (Cloud Score+) is linked in separately
 
+# HLS-2 Landsat 8/9 OLI (HLSL30 v2.0): surface reflectance as floats
+# (0..1), harmonised with Sentinel-2 (BRDF-normalised, bandpass-adjusted)
+HLS_BANDS = OLI_BANDS
+HLS_QA = {"FMASK": "Fmask"}
+HLSL30_COLLECTION = "NASA/HLS/HLSL30/v002"
+
 S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
 CLOUD_SCORE_PLUS = "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
 
 SENSORS = {
-    "LND04": dict(label="Landsat 4", family="LND", collection="LANDSAT/LT04/C02/T1_L2",
+    "LND04": dict(group="individual", label="Landsat 4", family="LND", collection="LANDSAT/LT04/C02/T1_L2",
                   bands=TM_BANDS, qa=TM_QA, scale=30, start=date(1982, 8, 1), end=date(1993, 12, 31)),
-    "LND05": dict(label="Landsat 5", family="LND", collection="LANDSAT/LT05/C02/T1_L2",
+    "LND05": dict(group="individual", label="Landsat 5", family="LND", collection="LANDSAT/LT05/C02/T1_L2",
                   bands=TM_BANDS, qa=TM_QA, scale=30, start=date(1984, 3, 1), end=date(2012, 12, 31)),
-    "LND07": dict(label="Landsat 7", family="LND", collection="LANDSAT/LE07/C02/T1_L2",
+    "LND07": dict(group="individual", label="Landsat 7", family="LND", collection="LANDSAT/LE07/C02/T1_L2",
                   bands=TM_BANDS, qa=TM_QA, scale=30, start=date(1999, 5, 1), end=None),
-    "LND08": dict(label="Landsat 8", family="LND", collection="LANDSAT/LC08/C02/T1_L2",
+    "LND08": dict(group="individual", label="Landsat 8", family="LND", collection="LANDSAT/LC08/C02/T1_L2",
                   bands=OLI_BANDS, qa=OLI_QA, scale=30, start=date(2013, 3, 1), end=None),
-    "LND09": dict(label="Landsat 9", family="LND", collection="LANDSAT/LC09/C02/T1_L2",
+    "LND09": dict(group="individual", label="Landsat 9", family="LND", collection="LANDSAT/LC09/C02/T1_L2",
                   bands=OLI_BANDS, qa=OLI_QA, scale=30, start=date(2021, 10, 1), end=None),
-    "SEN2A": dict(label="Sentinel-2A", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2A",
+    "SEN2A": dict(group="individual", label="Sentinel-2A", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2A",
                   bands=S2_BANDS, qa=S2_QA, scale=10, start=date(2015, 6, 1), end=None),
-    "SEN2B": dict(label="Sentinel-2B", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2B",
+    "SEN2B": dict(group="individual", label="Sentinel-2B", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2B",
                   bands=S2_BANDS, qa=S2_QA, scale=10, start=date(2017, 3, 1), end=None),
-    "SEN2C": dict(label="Sentinel-2C", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2C",
+    "SEN2C": dict(group="individual", label="Sentinel-2C", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2C",
                   bands=S2_BANDS, qa=S2_QA, scale=10, start=date(2024, 9, 1), end=None),
+    "HLSL30": dict(group="harmonized", label="HLS Landsat 8/9 OLI (HLSL30)", family="HLS",
+                   collection=HLSL30_COLLECTION, bands=HLS_BANDS, qa=HLS_QA, scale=30,
+                   start=date(2013, 4, 1), end=None),
+}
+
+SENSOR_GROUPS = {
+    "individual": "Individual Sensors",
+    "harmonized": "Harmonized Sensors",
 }
 
 # Landsat C2 L2 surface reflectance scaling: rho = DN * 0.0000275 - 0.2
@@ -155,9 +169,34 @@ def sentinel2_clear(qa, level):
     return scl in SCL_AGGRESSIVE and (cs is None or cs >= CS_AGGRESSIVE)
 
 
+def hls_clear(qa, level):
+    """Screen one HLS observation with its Fmask band.
+
+    Fmask bits: 0 reserved, 1 cloud, 2 adjacent to cloud/shadow,
+    3 cloud shadow, 4 snow/ice, 5 water, 6-7 aerosol level
+    (0 climatology, 1 low, 2 moderate, 3 high). 255 = fill.
+    """
+    fm = qa.get("FMASK")
+    if fm is None:
+        return False
+    fm = int(fm)
+    if fm == 255:
+        return False
+    if level == MASK_NONE:
+        return True
+    if fm & 0b11110:  # cloud, adjacent, shadow, snow
+        return False
+    if level == MASK_DEFAULT:
+        return True
+    return _bits(fm, 6) != 3  # aggressive: also no high aerosol
+
+
 def is_clear(sensor, qa, level):
-    if SENSORS[sensor]["family"] == "LND":
+    family = SENSORS[sensor]["family"]
+    if family == "LND":
         return landsat_clear(qa, level)
+    if family == "HLS":
+        return hls_clear(qa, level)
     return sentinel2_clear(qa, level)
 
 
@@ -170,9 +209,25 @@ def reflectance(sensor, raw, band):
     v = raw.get(band)
     if v is None:
         return None
-    if SENSORS[sensor]["family"] == "LND":
+    family = SENSORS[sensor]["family"]
+    if family == "LND":
         return v * LANDSAT_GAIN + LANDSAT_OFFSET
+    if family == "HLS":
+        if v < -0.5:  # fill value (-9999 / -0.9999) that was not masked
+            return None
+        return v * 10000.0
     return float(v)
+
+
+# Tasseled Cap, reflectance-factor coefficients of Crist (1985) for
+# BLUE, GREEN, RED, NIR, SWIR1, SWIR2 (as used by FORCE for Landsat and
+# Sentinel-2). Linear, so they apply directly to reflectance x 10000.
+TC_BANDS = ("BLUE", "GREEN", "RED", "NIR", "SWIR1", "SWIR2")
+TC_COEFFS = {
+    "TCB": (0.2043, 0.4158, 0.5524, 0.5741, 0.3124, 0.2303),
+    "TCG": (-0.1603, -0.2819, -0.4934, 0.7940, -0.0002, -0.1446),
+    "TCW": (0.0315, 0.2021, 0.3102, 0.1594, -0.6806, -0.6109),
+}
 
 
 def _nd(a, b):
@@ -204,6 +259,9 @@ def compute_value(sensor, raw, band):
                 v = 2.5 * (n - red) / den * 10000.0
                 if not -20000 <= v <= 20000:  # unstable denominator
                     v = None
+    elif band in TC_COEFFS:
+        vals = [r(b) for b in TC_BANDS]
+        v = None if None in vals else sum(c * x for c, x in zip(TC_COEFFS[band], vals))
     elif band in REFLECTANCE_BANDS:
         v = r(band)
     else:

@@ -57,3 +57,12 @@ def test_empty_collection_is_not_an_error(monkeypatch):
     monkeypatch.setattr(eeapi, "build_collection", lambda *a, **k: FakeCol())
     monkeypatch.setattr(eeapi, "_get_info", raise_empty)
     assert eeapi.fetch_year("SEN2C", 13.4, 52.5, 2024) == []
+
+
+def test_groups_cannot_be_mixed():
+    client = appmod.app.test_client()
+    r = client.post("/sendData", json={"lat": 52.5, "lng": 13.4, "startDate": "2020-01-01",
+                                       "endDate": "2020-02-01", "sensorList": ["LND08", "HLSL30"]})
+    assert r.status_code == 400
+    page = client.get("/").get_data(as_text=True)
+    assert "Individual Sensors" in page and "Harmonized Sensors" in page and 'value="HLSL30"' in page

@@ -74,3 +74,31 @@ def test_observations_dedupe_same_day():
     images, points = observations("SEN2A", rows, 0, 150, "NDVI", S.MASK_DEFAULT)
     assert images == 2
     assert points == [[100, 6667, "SEN2A", "a_T32UPV"], [105, 6667, "SEN2A", "b_T32UPU"]]
+
+
+def test_hls_scaling_and_mask():
+    raw = {"RED": 0.05, "NIR": 0.30, "FMASK": 0}
+    assert S.compute_value("HLSL30", raw, "RED") == 500
+    assert S.compute_value("HLSL30", raw, "NDVI") == round(0.25 / 0.35 * 10000)
+    assert S.compute_value("HLSL30", {"RED": -0.9999}, "RED") is None   # fill
+    assert S.hls_clear({"FMASK": 0}, S.MASK_DEFAULT)
+    assert S.hls_clear({"FMASK": 1 << 5 | 1}, S.MASK_DEFAULT)          # water, reserved bit
+    for bit in (1, 2, 3, 4):                                            # cloud, adjacent, shadow, snow
+        assert not S.hls_clear({"FMASK": 1 << bit}, S.MASK_DEFAULT)
+        assert S.hls_clear({"FMASK": 1 << bit}, S.MASK_NONE)
+    assert S.hls_clear({"FMASK": 3 << 6}, S.MASK_DEFAULT)               # high aerosol
+    assert not S.hls_clear({"FMASK": 3 << 6}, S.MASK_AGGRESSIVE)
+    assert not S.hls_clear({"FMASK": 255}, S.MASK_NONE)                 # fill
+    assert S.sensor_years("HLSL30", date(2010, 1, 1), date(2014, 6, 1)) == [2013, 2014]
+
+
+def test_tasseled_cap():
+    raw = {"BLUE": 500, "GREEN": 800, "RED": 600, "NIR": 3000, "SWIR1": 2000, "SWIR2": 1000}
+    vals = [raw[b] for b in S.TC_BANDS]
+    for band in ("TCB", "TCG", "TCW"):
+        expected = round(sum(c * v for c, v in zip(S.TC_COEFFS[band], vals)))
+        assert S.compute_value("SEN2A", raw, band) == expected
+    # same reflectances in HLS float units give the same result
+    hls = {b: v / 10000 for b, v in raw.items()}
+    assert S.compute_value("HLSL30", hls, "TCG") == S.compute_value("SEN2A", raw, "TCG")
+    assert S.compute_value("SEN2A", {"NIR": 3000}, "TCW") is None

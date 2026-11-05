@@ -44,11 +44,18 @@
         <label><strong>End date:</strong> <input id="endDate" type="date" value="2025-12-31"></label>
       </div>
 
-      <p><strong>Sensors:</strong></p>
       <div id="sGroups">
-        {%- for code, s in sensors.items() %}
-        <label><input type="checkbox" name="selectedSensors" value="{{ code }}" checked>{{ s.label }}</label>
-        {%- if code == 'LND09' %}<br>{% endif %}
+        {%- for group, title in groups.items() %}
+        <fieldset class="sensorGroup" data-group="{{ group }}"{% if not loop.first %} disabled{% endif %}>
+          <legend>
+            <label><input type="radio" name="sensorMode" value="{{ group }}"{% if loop.first %} checked{% endif %}>
+              <strong>{{ title }}</strong></label>
+          </legend>
+          {%- for code, s in sensors.items() if s.group == group %}
+          <label><input type="checkbox" name="selectedSensors" value="{{ code }}" checked>{{ s.label }}</label>
+          {%- if code == 'LND09' %}<br>{% endif %}
+          {%- endfor %}
+        </fieldset>
         {%- endfor %}
       </div>
 
@@ -74,13 +81,18 @@
               <option value="NDMI">NDMI</option>
               <option value="NDWI">NDWI (McFeeters)</option>
             </optgroup>
+            <optgroup label="Tasseled Cap">
+              <option value="TCB">TC Brightness</option>
+              <option value="TCG">TC Greenness</option>
+              <option value="TCW">TC Wetness</option>
+            </optgroup>
           </select>
         </label>
 
         <span><strong>Cloud mask:</strong>
           <label title="Only fill / no-data pixels are removed"><input type="radio" name="cloudOption" value="0"> None</label>
-          <label title="Landsat: QA_PIXEL cloud, dilated cloud, cirrus, shadow, snow. Sentinel-2: SCL + Cloud Score+ cs_cdf ≥ 0.50"><input type="radio" name="cloudOption" value="1" checked> Default</label>
-          <label title="Default + cloud/cirrus confidence, saturation, haze (Landsat); strict SCL + Cloud Score+ cs_cdf ≥ 0.65 (Sentinel-2)"><input type="radio" name="cloudOption" value="2"> Aggressive</label>
+          <label title="Landsat: QA_PIXEL cloud, dilated cloud, cirrus, shadow, snow. Sentinel-2: SCL + Cloud Score+ cs_cdf ≥ 0.50. HLS: Fmask cloud, adjacent cloud, shadow, snow"><input type="radio" name="cloudOption" value="1" checked> Default</label>
+          <label title="Default + cloud/cirrus confidence, saturation, haze (Landsat); strict SCL + Cloud Score+ cs_cdf ≥ 0.65 (Sentinel-2); + high aerosol (HLS)"><input type="radio" name="cloudOption" value="2"> Aggressive</label>
         </span>
 
         <label for="lineMode"><strong>Line:</strong>
