@@ -94,3 +94,13 @@ def test_viewer_works_without_export_libraries(monkeypatch):
     r = client.post("/export", json={"sensor": "LND08", "id": "x", "extent": "view"})
     assert r.status_code == 500 and "libexpat" in r.get_json()["error"]
     assert client.get("/export/abc").status_code == 404
+
+
+def test_browser_address(monkeypatch):
+    monkeypatch.setattr(appmod, "in_container", lambda: False)
+    assert appmod.browser_address(2742) == "http://localhost:2742"
+    assert appmod.browser_address(2742, 8027) == "http://localhost:8027"
+    monkeypatch.setattr(appmod, "in_container", lambda: True)
+    assert appmod.browser_address(2742, 8027) == "http://localhost:8027"
+    shown = appmod.browser_address(2742)
+    assert shown.startswith("http://localhost:2742") and "HOST_PORT" in shown
