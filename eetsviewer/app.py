@@ -293,8 +293,12 @@ def export_start():
                         "error": f"GeoTIFF download is not available on this server: {_export_error}"}), 500
     data = request.get_json(force=True)
     try:
+        mask = data.get("mask")             # None = raw, 1 = Default, 2 = Aggressive
+        mask = None if mask in (None, "", "raw") else int(mask)
         plan = exporter.plan_export(data.get("sensor"), data.get("id"),
-                                    data.get("extent", "view"), data.get("bounds"))
+                                    data.get("extent", "view"), data.get("bounds"), mask)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"status": "error", "error": f"Bad request: {exc}"}), 400
     except exporter.ExportError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
     except Exception as exc:

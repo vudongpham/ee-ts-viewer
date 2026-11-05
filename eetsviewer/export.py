@@ -26,7 +26,9 @@ from rasterio.transform import Affine
 from rasterio.warp import transform as warp_transform, transform_bounds
 
 from .earthengine import IMAGE_ID, RETRY_PATTERNS
-from .sensors import LANDSAT_GAIN, LANDSAT_OFFSET, SENSORS, export_name
+from .sensors import (CLOUD_SCORE_PLUS, CS_AGGRESSIVE, CS_DEFAULT, LANDSAT_GAIN, LANDSAT_OFFSET,
+                      MASK_AGGRESSIVE, MASK_DEFAULT, SCL_AGGRESSIVE, SCL_DEFAULT,
+                      SENSORS, export_name)
 
 NODATA = -9999
 BLOCK = 1024                     # block edge in pixels (12 bands int16 = 25 MB < 48 MB limit)
@@ -44,10 +46,12 @@ class ExportError(Exception):
 # ---------------------------------------------------------------------------
 
 class Plan:
-    def __init__(self, sensor, image_id, crs, transform, width, height, date, source_id=None):
+    def __init__(self, sensor, image_id, crs, transform, width, height, date, source_id=None,
+                 mask=None):
         s = SENSORS[sensor]
         self.sensor = sensor
         self.image_id = image_id
+        self.mask = mask                  # None = raw, else MASK_DEFAULT / MASK_AGGRESSIVE
         self.crs = crs                    # dict with 'crs' (EPSG code) or 'wkt'
         self.transform = transform        # rasterio Affine of the output grid
         self.width = width
@@ -55,7 +59,7 @@ class Plan:
         self.date = date                  # YYYYMMDD
         self.bands = [b for b, _ in s["export"]]
         self.descriptions = [f"{b} ({name})" for b, name in s["export"]]
-        self.name = export_name(sensor, date, source_id)   # {product}_{sensor}_{YYYYMMDD}.tif
+        self.name = export_name(sensor, date, source_id, mask)  # {product}_{sensor}_{YYYYMMDD}[_masked].tif
 
     @property
     def blocks(self):
@@ -112,11 +116,74 @@ def _intersect(a, b):
     return (w, s, e, n) if w < e and s < n else None
 
 
-def export_image(sensor, image_id):
-    """Earth Engine expression of the exported bands: int16, reflectance
-    x 10000 (the same scale as the time series), masked pixels = -9999."""
+def _bits(img, start, n=2):
+    return img.rightShift(start).bitwiseAnd((1 << n) - 1)
+
+
+def _in(img, values):
+    """1 where `img` equals one of `values`."""
+    out = None
+    for v in sorted(values):
+        out = img.eq(v) if out is None else out.Or(img.eq(v))
+    return out
+
+
+def clear_mask(sensor, scene, image_id, level):
+    """Per-pixel version of sensors.is_clear(): 1 = clear, 0 = masked.
+
+    The rules are the same as for the time series (Default / Aggressive),
+    so a downloaded masked scene matches the observations in the chart.
+    """
     s = SENSORS[sensor]
-    img = ee.Image(f"{s['collection']}/{image_id}").select([b for b, _ in s["export"]])
+    family = s["family"]
+    if family == "LND":
+        qa = scene.select("QA_PIXEL")
+        ok = qa.bitwiseAnd(1).eq(0)                          # fill
+        if level >= MASK_DEFAULT:
+            ok = ok.And(qa.bitwiseAnd(0b111110).eq(0))       # dilated cloud, cirrus, cloud, shadow, snow
+        if level >= MASK_AGGRESSIVE:
+            ok = (ok.And(_bits(qa, 8).lt(2)).And(_bits(qa, 14).lt(2))     # cloud / cirrus confidence
+                    .And(_bits(qa, 10).neq(3)).And(_bits(qa, 12).neq(3))  # shadow / snow confidence
+                    .And(scene.select("QA_RADSAT").unmask(0).eq(0)))      # saturation
+            if "AEROSOL" in s["qa"]:
+                ok = ok.And(_bits(scene.select("SR_QA_AEROSOL").unmask(0), 6).neq(3))
+            if "OPACITY" in s["qa"]:
+                ok = ok.And(scene.select("SR_ATMOS_OPACITY").unmask(0).multiply(0.001).lte(0.3))
+        return ok
+    if family == "HLS":
+        fm = scene.select("Fmask")
+        ok = fm.neq(255)                                     # fill
+        if level >= MASK_DEFAULT:
+            ok = ok.And(fm.bitwiseAnd(0b11110).eq(0))        # cloud, adjacent, shadow, snow
+        if level >= MASK_AGGRESSIVE:
+            ok = ok.And(_bits(fm, 6).neq(3))                 # high aerosol
+        return ok
+    # Sentinel-2: SCL + Cloud Score+ (if the scene has no Cloud Score+ image,
+    # only SCL is used, as for the time series)
+    scl = scene.select("SCL")
+    ok = scl.neq(0)
+    if level >= MASK_DEFAULT:
+        csp = ee.ImageCollection(CLOUD_SCORE_PLUS).filter(ee.Filter.eq("system:index", image_id))
+        cs = ee.Image(ee.Algorithms.If(csp.size().gt(0),
+                                       csp.first().select("cs_cdf"),
+                                       ee.Image.constant(1).rename("cs_cdf"))).unmask(1)
+        classes, threshold = ((SCL_AGGRESSIVE, CS_AGGRESSIVE) if level >= MASK_AGGRESSIVE
+                              else (SCL_DEFAULT, CS_DEFAULT))
+        ok = ok.And(_in(scl, classes)).And(cs.gte(threshold))
+    return ok
+
+
+def export_image(sensor, image_id, mask=None):
+    """Earth Engine expression of the exported bands: int16, reflectance
+    x 10000 (the same scale as the time series), masked pixels = -9999.
+
+    mask: None for the raw scene, or MASK_DEFAULT / MASK_AGGRESSIVE to set
+    cloudy pixels to nodata as well."""
+    s = SENSORS[sensor]
+    scene = ee.Image(f"{s['collection']}/{image_id}")
+    img = scene.select([b for b, _ in s["export"]])
+    if mask is not None:
+        img = img.updateMask(clear_mask(sensor, scene, image_id, mask))
     if s["family"] == "LND":
         img = img.multiply(LANDSAT_GAIN).add(LANDSAT_OFFSET)
     elif s["family"] == "HLS":
@@ -127,7 +194,7 @@ def export_image(sensor, image_id):
             .unmask(NODATA, False))
 
 
-def plan_export(sensor, image_id, extent, view_bounds=None):
+def plan_export(sensor, image_id, extent, view_bounds=None, mask=None):
     """Work out the output grid. One Earth Engine round trip.
 
     extent: "scene" (footprint of the scene) or "view" (the part of the
@@ -135,6 +202,8 @@ def plan_export(sensor, image_id, extent, view_bounds=None):
     """
     if sensor not in SENSORS:
         raise ExportError(f"Unknown sensor {sensor!r}")
+    if mask not in (None, MASK_DEFAULT, MASK_AGGRESSIVE):
+        raise ExportError(f"Unknown cloud mask {mask!r}")
     if not IMAGE_ID.match(image_id or ""):
         raise ExportError("Invalid image id")
     s = SENSORS[sensor]
@@ -183,7 +252,7 @@ def plan_export(sensor, image_id, extent, view_bounds=None):
                           f"at most {MAX_SIDE} x {MAX_SIDE}): zoom in")
 
     date = datetime.fromtimestamp(info["time"] / 1000, tz=timezone.utc).strftime("%Y%m%d")
-    return Plan(sensor, image_id, crs, transform, width, height, date, info.get("source"))
+    return Plan(sensor, image_id, crs, transform, width, height, date, info.get("source"), mask)
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +314,7 @@ class ExportJob:
                 "job": self.id, "status": self.status, "error": self.error,
                 "current": self.current, "total": self.total, "name": self.plan.name,
                 "width": self.plan.width, "height": self.plan.height,
-                "bands": len(self.plan.bands),
+                "bands": len(self.plan.bands), "mask": self.plan.mask,
                 "elapsed": round((self.finished or time.time()) - self.started, 2),
             }
 
@@ -284,7 +353,7 @@ def run_export(job, fetch=None):
     fetch = fetch or fetch_block
     pool = ThreadPoolExecutor(EXPORT_WORKERS, thread_name_prefix="export")
     try:
-        expression = export_image(plan.sensor, plan.image_id)
+        expression = export_image(plan.sensor, plan.image_id, plan.mask)
         with rasterio.open(job.path, "w", **_profile(plan)) as dst:
             for i, desc in enumerate(plan.descriptions, start=1):
                 dst.set_band_description(i, desc)

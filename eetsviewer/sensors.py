@@ -57,7 +57,7 @@ HLS_QA = {"FMASK": "Fmask"}
 HLSL30_COLLECTION = "NASA/HLS/HLSL30/v002"
 HLSS30_COLLECTION = "NASA/HLS/HLSS30/v002"
 
-# Bands written by "Download current overlayed image": every reflective
+# Bands written by "Download selected image": every reflective
 # (physical) band of the product, as (Earth Engine band, description).
 # Thermal bands are left out: the file holds reflectance x 10000.
 TM_EXPORT = [("SR_B1", "BLUE"), ("SR_B2", "GREEN"), ("SR_B3", "RED"),
@@ -137,9 +137,11 @@ def spacecraft(sensor, source_id=None):
     return "LND" if sensor == "HLSL30" else "SEN2"
 
 
-def export_name(sensor, date, source_id=None):
-    """File name of an exported scene: {product}_{sensor}_{YYYYMMDD}.tif"""
-    return f"{SENSORS[sensor]['product']}_{spacecraft(sensor, source_id)}_{date}.tif"
+def export_name(sensor, date, source_id=None, mask=None):
+    """File name of an exported scene: {product}_{sensor}_{YYYYMMDD}.tif,
+    with _masked (Default) or _masked_aggressive for cloud-masked downloads."""
+    return (f"{SENSORS[sensor]['product']}_{spacecraft(sensor, source_id)}_{date}"
+            f"{MASK_SUFFIX[mask]}.tif")
 
 
 def sensor_years(sensor, start, end):
@@ -180,6 +182,9 @@ def sensor_periods(sensor, start, end):
 # ---------------------------------------------------------------------------
 
 MASK_NONE, MASK_DEFAULT, MASK_AGGRESSIVE = 0, 1, 2
+
+# file name suffix of cloud-masked downloads (see export_name)
+MASK_SUFFIX = {None: "", MASK_DEFAULT: "_masked", MASK_AGGRESSIVE: "_masked_aggressive"}
 
 # Cloud Score+ cs_cdf thresholds (0 = cloudy, 1 = clear)
 CS_DEFAULT = 0.50

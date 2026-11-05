@@ -137,7 +137,13 @@
         <label><strong>Opacity:</strong> <input id="opacity" type="range" min="0" max="1" step="0.05" value="1"></label>
         <button id="clearOverlay" disabled>Remove overlay</button>
         <button id="downloadOverlay" disabled
-                title="Save all reflective bands of the overlaid scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">Download current overlayed image</button>
+                title="Save all reflective bands of the overlaid scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">Download selected image</button>
+        <label for="exportData"><strong>Data:</strong>
+          <select id="exportData" title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected) are set to nodata = -9999">
+            <option value="raw" selected>Raw</option>
+            <option value="masked">Cloud masked</option>
+          </select>
+        </label>
         <label for="exportExtent"><strong>Area:</strong>
           <select id="exportExtent" title="Part of the scene that is downloaded, at its full native resolution">
             <option value="view" selected>Map view</option>

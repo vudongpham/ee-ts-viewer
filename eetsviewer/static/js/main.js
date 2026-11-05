@@ -873,9 +873,10 @@ function setExportProgress(fraction) {
 function setExportRunning(on) {
   const b = $('downloadOverlay');
   b.classList.toggle('running', on);
-  b.textContent = on ? 'Cancel download' : 'Download current overlayed image';
+  b.textContent = on ? 'Cancel download' : 'Download selected image';
   b.disabled = !on && !overlayPoint;
   $('exportExtent').disabled = on;
+  $('exportData').disabled = on;
 }
 
 function mapBounds() {
@@ -885,6 +886,16 @@ function mapBounds() {
           clamp(b.getEast(), -180, 180), clamp(b.getNorth(), -90, 90)];
 }
 
+const MASK_NAMES = { 1: 'Default', 2: 'Aggressive' };
+
+// cloud mask of the download: null = raw, otherwise the Cloud mask of the
+// panel (None -> Default)
+function exportMask() {
+  if ($('exportData').value !== 'masked') return null;
+  const level = Number(document.querySelector('input[name="cloudOption"]:checked').value);
+  return level >= 1 ? level : 1;
+}
+
 function fmtMB(w, h, n) {
   return `${((w * h * n * 2) / 1e6).toFixed(0)} MB uncompressed`;
 }
@@ -892,6 +903,7 @@ function fmtMB(w, h, n) {
 async function startExport() {
   const p = overlayPoint;
   if (!p) return;
+  const mask = exportMask();
   setExportRunning(true);
   setExportProgress(null);
   setExportInfo(`Preparing ${p.s} ${fmtDate(p.x)}…`);
@@ -900,7 +912,7 @@ async function startExport() {
     const r = await fetch('/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sensor: p.s, id: p.id, extent: $('exportExtent').value, bounds: mapBounds() }),
+      body: JSON.stringify({ sensor: p.s, id: p.id, extent: $('exportExtent').value, bounds: mapBounds(), mask }),
     });
     d = await r.json();
   } catch (err) {
@@ -918,7 +930,8 @@ async function startExport() {
 
 function exportStatus(d) {
   if (d.job !== exportJob) return;
-  const size = `${d.width} × ${d.height} px, ${d.bands} bands, ${fmtMB(d.width, d.height, d.bands)}`;
+  const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]})` : 'raw';
+  const size = `${kind}, ${d.width} × ${d.height} px, ${d.bands} bands, ${fmtMB(d.width, d.height, d.bands)}`;
   if (d.status === 'running') {
     const pct = d.total ? Math.round((100 * d.current) / d.total) : 0;
     setExportProgress(d.total ? d.current / d.total : 0);
