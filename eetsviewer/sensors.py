@@ -44,7 +44,10 @@ S2_QA = {"SCL": "SCL"}  # cs_cdf (Cloud Score+) is linked in separately
 # floats (0..1), BRDF-normalised and bandpass-adjusted to a common
 # reference, on the 30 m Sentinel-2 MGRS grid.
 #   HLSL30: Landsat 8/9 OLI, HLSS30: Sentinel-2A/B/C MSI
-HLSL30_BANDS = OLI_BANDS
+HLSL30_BANDS = {  # OLI bands, but named B2..B7 (not SR_B2..SR_B7)
+    "BLUE": "B2", "GREEN": "B3", "RED": "B4",
+    "NIR": "B5", "SWIR1": "B6", "SWIR2": "B7",
+}
 HLSS30_BANDS = {
     "BLUE": "B2", "GREEN": "B3", "RED": "B4",
     "RE1": "B5", "RE2": "B6", "RE3": "B7",

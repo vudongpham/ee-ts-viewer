@@ -112,3 +112,20 @@ def test_hlss30():
     assert not S.is_clear("HLSS30", {"FMASK": 1 << 1}, S.MASK_DEFAULT)
     assert S.SENSORS["HLSS30"]["bands"]["NIR"] == "B8A"
     assert S.sensor_years("HLSS30", date(2014, 1, 1), date(2016, 6, 1)) == [2015, 2016]
+
+
+# band names as listed in the Earth Engine catalog
+CATALOG_BANDS = {
+    "NASA/HLS/HLSL30/v002": {"B1", "B2", "B3", "B4", "B5", "B6", "B7", "B9", "B10", "B11",
+                             "Fmask", "SZA", "SAA", "VZA", "VAA"},
+    "NASA/HLS/HLSS30/v002": {"B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10",
+                             "B11", "B12", "Fmask", "SZA", "SAA", "VZA", "VAA"},
+}
+
+
+def test_hls_band_names_exist():
+    for code in ("HLSL30", "HLSS30"):
+        s = S.SENSORS[code]
+        used = set(s["bands"].values()) | set(s["qa"].values())
+        assert used <= CATALOG_BANDS[s["collection"]], (code, used - CATALOG_BANDS[s["collection"]])
+    assert S.SENSORS["HLSL30"]["bands"]["NIR"] == "B5"
