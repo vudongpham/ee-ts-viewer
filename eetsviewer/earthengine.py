@@ -76,6 +76,9 @@ RETRY_PATTERNS = re.compile(
 )
 
 
+EMPTY_COLLECTION = re.compile(r"no bands in collection", re.IGNORECASE)
+
+
 def _get_info(obj, retries=4):
     delay = 1.0
     for attempt in range(retries + 1):
@@ -100,7 +103,14 @@ def fetch_year(sensor, lng, lat, year):
     s = SENSORS[sensor]
     point = ee.Geometry.Point([lng, lat])
     col = build_collection(sensor, point, f"{year}-01-01", f"{year + 1}-01-01")
-    region = _get_info(col.getRegion(point, s["scale"]))
+    try:
+        region = _get_info(col.getRegion(point, s["scale"]))
+    except ee.EEException as exc:
+        # getRegion fails on an empty collection: no scene of this sensor
+        # covers the location in this year, which is not an error
+        if EMPTY_COLLECTION.search(str(exc)):
+            return []
+        raise
     if not region or len(region) < 2:
         return []
     header = region[0]
