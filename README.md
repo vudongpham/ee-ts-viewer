@@ -74,7 +74,7 @@ With `-t`, the terminal shows coloured output and a live progress bar; without i
 
 **Download selected image**: the block at the top right of the map saves the overlaid scene as a GeoTIFF.
 - Shows the selected image (sensor, date, image ID, file name), its cloud cover (pixels removed by the selected cloud mask / valid pixels of the whole scene, in %) and the size of the download in pixels for the selected area, updated while you pan and zoom
-- *Data*: *Raw*, or *Cloud masked* with the selected cloud mask (cloudy pixels set to nodata)
+- *Data*: *Original*, or *Cloud masked* with the selected cloud mask (cloudy pixels set to nodata)
 - *Area*: *Map view* or *Full scene*
 - All reflective bands, int16, reflectance × 10000, nodata −9999, native projection and resolution
 - File name `{product}_{sensor}_{YYYYMMDD}.tif`, with `_masked` / `_masked_aggressive` for cloud-masked downloads, e.g. `S2SR_SEN2A_20240212.tif`, `HLSL30_LND09_20240212_masked.tif`
