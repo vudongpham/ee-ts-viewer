@@ -35,7 +35,7 @@ def fake_fetch(plan, expression, col, row, w, h):
 
 
 def test_run_export_writes_geotiff(monkeypatch):
-    monkeypatch.setattr(ex, "export_image", lambda sensor, image_id: None)
+    monkeypatch.setattr(ex, "export_image", lambda *a: None)
     plan = make_plan()
     assert plan.name == "S2SR_SEN2A_20240212.tif"
     job = ex.ExportJob(plan)
@@ -57,10 +57,10 @@ def test_run_export_writes_geotiff(monkeypatch):
 
 
 def test_export_routes(monkeypatch):
-    monkeypatch.setattr(ex, "export_image", lambda sensor, image_id: None)
+    monkeypatch.setattr(ex, "export_image", lambda *a: None)
     monkeypatch.setattr(ex, "fetch_block", fake_fetch)
     monkeypatch.setattr(ex, "plan_export",
-                        lambda sensor, image_id, extent, bounds: make_plan("LND08", 300, 200))
+                        lambda sensor, image_id, extent, bounds, mask=None: make_plan("LND08", 300, 200))
     client = appmod.app.test_client()
     d = client.post("/export", json={"sensor": "LND08", "id": "LC08_193023_20240212",
                                      "extent": "view", "bounds": [13, 52, 14, 53]}).get_json()
@@ -185,3 +185,107 @@ def test_hls_names_use_the_satellite(monkeypatch):
     monkeypatch.setattr(ex, "ee", FakeEE(info))
     plan = ex.plan_export("HLSS30", "T32UQD_20240212T101019", "scene")
     assert plan.name == "HLSS30_SEN2B_20240212.tif"
+
+
+# ---------------------------------------------------------------------------
+# The Earth Engine cloud mask must match the time-series screening exactly.
+# clear_mask() is run on a NumPy stand-in for ee.Image and compared, pixel by
+# pixel, with sensors.is_clear() on random QA values.
+# ---------------------------------------------------------------------------
+
+class NpImage:
+    def __init__(self, bands):
+        self.bands = bands            # name -> np array (masked values: np.ma)
+
+    def _one(self):
+        return next(iter(self.bands.values()))
+
+    def _op(self, other, fn):
+        b = other._one() if isinstance(other, NpImage) else other
+        return NpImage({"x": fn(self._one(), b)})
+
+    def select(self, name):
+        return NpImage({name: self.bands[name]})
+
+    def rightShift(self, n): return self._op(n, lambda a, b: a >> b)
+    def bitwiseAnd(self, n): return self._op(n, lambda a, b: a & b)
+    def eq(self, v): return self._op(v, lambda a, b: (a == b).astype(int))
+    def neq(self, v): return self._op(v, lambda a, b: (a != b).astype(int))
+    def lt(self, v): return self._op(v, lambda a, b: (a < b).astype(int))
+    def lte(self, v): return self._op(v, lambda a, b: (a <= b).astype(int))
+    def gte(self, v): return self._op(v, lambda a, b: (a >= b).astype(int))
+    def And(self, o): return self._op(o, lambda a, b: a & b)
+    def Or(self, o): return self._op(o, lambda a, b: a | b)
+    def multiply(self, v): return self._op(v, lambda a, b: a * b)
+    def rename(self, n): return NpImage({n: self._one()})
+
+    def unmask(self, v):
+        a = self._one()
+        return NpImage({"x": np.ma.filled(a, v) if np.ma.isMaskedArray(a) else a})
+
+
+class NpEE:
+    """ee namespace for clear_mask(); `cs` is the Cloud Score+ cs_cdf array
+    (None = the scene has no Cloud Score+ image)."""
+
+    def __init__(self, cs):
+        self.cs = cs
+        outer = self
+
+        class Filter:
+            @staticmethod
+            def eq(k, v): return None
+
+        class Algorithms:
+            @staticmethod
+            def If(cond, a, b): return a if cond else b
+
+        class Collection:
+            def filter(self, f): return self
+            def size(self): return self
+            def gt(self, n): return outer.cs is not None
+            def first(self): return NpImage({"cs_cdf": outer.cs})
+
+        class Image:
+            def __new__(cls, x): return x
+            @staticmethod
+            def constant(v): return NpImage({"x": np.float64(v)})
+
+        self.Filter, self.Algorithms, self.Image = Filter, Algorithms, Image
+        self.ImageCollection = lambda name: Collection()
+
+
+def _check_mask(monkeypatch, sensor, bands, cs, n):
+    from eetsviewer import sensors as S
+    monkeypatch.setattr(ex, "ee", NpEE(cs))
+    scene = NpImage(bands)
+    for level in (S.MASK_DEFAULT, S.MASK_AGGRESSIVE):
+        got = np.asarray(ex.clear_mask(sensor, scene, "id", level)._one()).astype(bool)
+        for i in range(n):
+            qa = {k: (None if np.ma.is_masked(v[i]) else v[i].item()) for k, v in {
+                **{name: bands[src] for name, src in S.SENSORS[sensor]["qa"].items()},
+                **({"cs_cdf": cs} if cs is not None else {})}.items()}
+            assert bool(got[i]) == S.is_clear(sensor, qa, level), (sensor, level, qa)
+
+
+def test_cloud_mask_matches_time_series_rules(monkeypatch):
+    rng = np.random.default_rng(1)
+    n = 4000
+    # Landsat: random QA_PIXEL bits; some RADSAT / aerosol / opacity values
+    qa = rng.integers(0, 1 << 16, n)
+    qa[: n // 2] &= ~0b111111          # half of them pass the Default flags
+    radsat = np.where(rng.random(n) < 0.2, 4, 0)
+    aer = rng.integers(0, 256, n)
+    opa = np.ma.masked_array(rng.integers(0, 600, n), mask=rng.random(n) < 0.3)
+    _check_mask(monkeypatch, "LND08", {"QA_PIXEL": qa, "QA_RADSAT": radsat, "SR_QA_AEROSOL": aer}, None, n)
+    _check_mask(monkeypatch, "LND05", {"QA_PIXEL": qa, "QA_RADSAT": radsat, "SR_ATMOS_OPACITY": opa}, None, n)
+    # HLS: random Fmask incl. fill
+    fm = rng.integers(0, 256, n)
+    fm[: n // 2] &= ~0b11110
+    fm[:50] = 255
+    _check_mask(monkeypatch, "HLSS30", {"Fmask": fm}, None, n)
+    # Sentinel-2: random SCL and cs_cdf, with and without Cloud Score+
+    scl = rng.integers(0, 12, n)
+    cs = rng.random(n)
+    _check_mask(monkeypatch, "SEN2B", {"SCL": scl}, cs, n)
+    _check_mask(monkeypatch, "SEN2B", {"SCL": scl}, None, n)
