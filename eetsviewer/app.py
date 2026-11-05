@@ -10,7 +10,6 @@ from datetime import date
 from flask import Flask, Response, jsonify, render_template, request
 
 from . import earthengine as eeapi
-from . import export as exporter
 from .sensors import ALL_BANDS, SENSOR_GROUPS, SENSORS, compute_value, is_clear, sensor_periods
 
 app = Flask(
@@ -261,9 +260,37 @@ def tiles():
         return jsonify({"error": f"Earth Engine error: {exc}"}), 502
 
 
+_export_error = None
+
+
+def load_exporter():
+    """The GeoTIFF export module, imported on first use.
+
+    It needs rasterio / GDAL; if those cannot be loaded, the time-series
+    viewer still works and only the download reports the problem."""
+    global _export_error
+    try:
+        from . import export
+        return export
+    except ImportError as exc:
+        if _export_error is None:
+            app.logger.warning("GeoTIFF download is not available: %s", exc)
+        _export_error = str(exc)
+        return None
+
+
+def _get_export_job(job_id):
+    exporter = load_exporter()
+    return exporter.get_export(job_id) if exporter else None
+
+
 @app.route("/export", methods=["POST"])
 def export_start():
     """Start exporting the overlaid scene to a GeoTIFF."""
+    exporter = load_exporter()
+    if exporter is None:
+        return jsonify({"status": "error",
+                        "error": f"GeoTIFF download is not available on this server: {_export_error}"}), 500
     data = request.get_json(force=True)
     try:
         plan = exporter.plan_export(data.get("sensor"), data.get("id"),
@@ -277,7 +304,7 @@ def export_start():
 
 @app.route("/export/<job_id>")
 def export_status(job_id):
-    job = exporter.get_export(job_id)
+    job = _get_export_job(job_id)
     if job is None:
         return jsonify({"status": "error", "error": "Unknown export"}), 404
     return jsonify(job.snapshot())
@@ -285,17 +312,18 @@ def export_status(job_id):
 
 @app.route("/export/<job_id>/cancel", methods=["POST"])
 def export_cancel(job_id):
-    job = exporter.get_export(job_id)
+    job = _get_export_job(job_id)
     if job:
         job.cancel()
-        exporter.forget_export(job_id)
+        load_exporter().forget_export(job_id)
     return jsonify({"status": "cancelled"})
 
 
 @app.route("/export/<job_id>/file")
 def export_file(job_id):
     """The finished GeoTIFF; it is deleted from the server once it is sent."""
-    job = exporter.get_export(job_id)
+    exporter = load_exporter()
+    job = exporter.get_export(job_id) if exporter else None
     if job is None or job.status != "done" or not os.path.exists(job.path):
         return jsonify({"status": "error", "error": "File not available"}), 404
     path, name = job.path, job.plan.name
