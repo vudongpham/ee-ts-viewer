@@ -10,7 +10,7 @@ from datetime import date
 from flask import Flask, jsonify, render_template, request
 
 from . import earthengine as eeapi
-from .sensors import ALL_BANDS, SENSOR_GROUPS, SENSORS, compute_value, is_clear, sensor_years
+from .sensors import ALL_BANDS, SENSOR_GROUPS, SENSORS, compute_value, is_clear, sensor_periods
 
 app = Flask(
     __name__,
@@ -19,7 +19,8 @@ app = Flask(
     static_url_path="/static",
 )
 
-# Every request is one Earth Engine getRegion call (one sensor, one year).
+# Every request is one Earth Engine getRegion call (one sensor, one year or
+# a part of a year, see sensors.sensor_periods).
 # They are network bound, so a thread pool runs them in parallel. Earth
 # Engine limits concurrent requests per project, so do not go too high.
 DEFAULT_WORKERS = 12
@@ -128,17 +129,17 @@ def observations(sensor, rows, first_day, last_day, band, cloud_mask):
     return len(days), points
 
 
-def run_request(job, sensor, year, lat, lng, first_day, last_day, band, cloud_mask):
-    """One Earth Engine request (one sensor, one year). Runs in the pool."""
+def run_request(job, sensor, period, lat, lng, first_day, last_day, band, cloud_mask):
+    """One Earth Engine request (one sensor, one period). Runs in the pool."""
     if job.cancelled.is_set():
         return
     images, points, error = 0, [], None
     try:
-        rows = eeapi.fetch_year_cached(sensor, lng, lat, year)
+        rows = eeapi.fetch_period_cached(sensor, lng, lat, *period)
         images, points = observations(sensor, rows, first_day, last_day, band, cloud_mask)
     except Exception as exc:  # keep going, report it at the end
         error = str(exc)
-        app.logger.warning("Request %s %d failed: %s", sensor, year, exc)
+        app.logger.warning("Request %s %s failed: %s", sensor, period[0], exc)
 
     with job.lock:
         job.current += 1
@@ -164,7 +165,7 @@ def start_job(job, lat, lng, start_date, end_date, sensors, band, cloud_mask):
         epoch = date(1970, 1, 1)
         first_day, last_day = (start - epoch).days, (end - epoch).days
 
-        requests = [(s, y) for s in sensors for y in sensor_years(s, start, end)]
+        requests = [(s, p) for s in sensors for p in sensor_periods(s, start, end)]
         with job.lock:
             job.total = len(requests)
             job.name = "Querying Earth Engine"
@@ -173,11 +174,11 @@ def start_job(job, lat, lng, start_date, end_date, sensors, band, cloud_mask):
             return
 
         pool = get_executor()
-        # newest years first: they are the most interesting and least cached
-        requests.sort(key=lambda r: -r[1])
-        job.futures = [pool.submit(run_request, job, s, y, lat, lng, first_day, last_day,
+        # newest periods first: they are the most interesting and least cached
+        requests.sort(key=lambda r: r[1][0], reverse=True)
+        job.futures = [pool.submit(run_request, job, s, p, lat, lng, first_day, last_day,
                                    band, cloud_mask)
-                       for s, y in requests]
+                       for s, p in requests]
     except Exception as exc:
         job.finish("error", f"Error: {exc}")
 

@@ -79,10 +79,10 @@ SENSORS = {
                   bands=S2_BANDS, qa=S2_QA, scale=10, start=date(2024, 9, 1), end=None),
     "HLSL30": dict(group="harmonized", label="HLS Landsat 8/9 OLI (HLSL30)", family="HLS",
                    collection=HLSL30_COLLECTION, bands=HLSL30_BANDS, qa=HLS_QA, scale=30,
-                   start=date(2013, 4, 1), end=None),
+                   start=date(2013, 4, 1), end=None, parts=3),
     "HLSS30": dict(group="harmonized", label="HLS Sentinel-2 MSI (HLSS30)", family="HLS",
                    collection=HLSS30_COLLECTION, bands=HLSS30_BANDS, qa=HLS_QA, scale=30,
-                   start=date(2015, 11, 1), end=None),
+                   start=date(2015, 11, 1), end=None, parts=6),
 }
 
 SENSOR_GROUPS = {
@@ -102,6 +102,31 @@ def sensor_years(sensor, start, end):
     first = max(start.year, s["start"].year)
     last = min(end.year, (s["end"] or date.today()).year, date.today().year)
     return list(range(first, last + 1))
+
+
+def sensor_periods(sensor, start, end):
+    """Date ranges [p0, p1) requested from Earth Engine for `sensor`.
+
+    Every request covers a calendar year, or 1/`parts` of a year for
+    sensors with a lot of acquisitions (HLS L30 combines Landsat 8 + 9,
+    HLS S30 combines Sentinel-2A/B/C), so their requests are as small as
+    those of the individual sensors and run in parallel. Only periods
+    that overlap [start, end] and the sensor's lifetime are returned.
+    """
+    s = SENSORS[sensor]
+    parts = s.get("parts", 1)
+    months = 12 // parts
+    first_valid = s["start"]
+    last_valid = min(s["end"] or date.today(), date.today())
+    periods = []
+    for year in sensor_years(sensor, start, end):
+        for k in range(parts):
+            p0 = date(year, 1 + k * months, 1)
+            p1 = date(year + 1, 1, 1) if k == parts - 1 else date(year, 1 + (k + 1) * months, 1)
+            if p1 <= max(start, first_valid) or p0 > min(end, last_valid):
+                continue
+            periods.append((p0, p1))
+    return periods
 
 
 # ---------------------------------------------------------------------------

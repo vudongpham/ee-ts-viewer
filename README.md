@@ -104,8 +104,8 @@ Then open `http://localhost:2742` in any web browser.
 - `--debug`: Run Flask in debug mode
 
 ### Notes
-- The extraction is split into one Earth Engine `getRegion` request per sensor and calendar year. These requests run in parallel, and their results stream into the progress bar. A new click cancels the previous request.
-- The raw band and QA values of each sensor-year are cached in memory. Switching the band, the cloud mask or the date range at the same location is therefore almost instant. Years that can still get new acquisitions are refreshed after 1 h.
+- The extraction is split into one Earth Engine `getRegion` request per sensor and calendar year. HLSL30 (Landsat 8 + 9 in one collection) is split into 4-month parts and HLSS30 (Sentinel-2A/B/C in one collection) into 2-month parts, so their requests are about as small as those of the individual sensors. Only the parts that overlap the date range are requested. The requests run in parallel, and their results stream into the progress bar. A new click cancels the previous request.
+- The raw band and QA values of each request are cached in memory. Switching the band, the cloud mask or the date range at the same location is therefore almost instant. Years that can still get new acquisitions are refreshed after 1 h.
 - **Click an observation in the chart** to show that scene on the map. You can show it as true color, false color (NIR-R-G) or SWIR (SWIR2-NIR-R), and set its opacity. The tiles are rendered by Earth Engine.
 - The *Line* dropdown works the same as in FORCE Live. It offers linear interpolation, monotone spline, a moving average, Savitzky–Golay, harmonic regression (1/2/3 harmonics + trend, after [Zhu et al. 2015](https://doi.org/10.1016/j.rse.2015.02.009)) or no line. It is computed in the browser.
 - *Download CSV* includes the Earth Engine image ID of every observation.

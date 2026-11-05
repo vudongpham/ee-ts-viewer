@@ -129,3 +129,24 @@ def test_hls_band_names_exist():
         used = set(s["bands"].values()) | set(s["qa"].values())
         assert used <= CATALOG_BANDS[s["collection"]], (code, used - CATALOG_BANDS[s["collection"]])
     assert S.SENSORS["HLSL30"]["bands"]["NIR"] == "B5"
+
+
+def test_sensor_periods():
+    # individual sensors: whole calendar years
+    assert S.sensor_periods("LND08", date(2020, 5, 1), date(2021, 2, 1)) == [
+        (date(2020, 1, 1), date(2021, 1, 1)), (date(2021, 1, 1), date(2022, 1, 1))]
+    # HLS S30: 2-month parts, only those overlapping the range
+    assert S.sensor_periods("HLSS30", date(2020, 3, 15), date(2020, 7, 1)) == [
+        (date(2020, 3, 1), date(2020, 5, 1)), (date(2020, 5, 1), date(2020, 7, 1)),
+        (date(2020, 7, 1), date(2020, 9, 1))]
+    # HLS L30: 4-month parts; nothing before the start of the mission
+    assert S.sensor_periods("HLSL30", date(2012, 1, 1), date(2013, 12, 31)) == [
+        (date(2013, 1, 1), date(2013, 5, 1)), (date(2013, 5, 1), date(2013, 9, 1)),
+        (date(2013, 9, 1), date(2014, 1, 1))]
+    # a full year of HLS S30 is 6 requests that tile the year without gaps
+    p = S.sensor_periods("HLSS30", date(2022, 1, 1), date(2022, 12, 31))
+    assert len(p) == 6 and p[0][0] == date(2022, 1, 1) and p[-1][1] == date(2023, 1, 1)
+    assert all(a[1] == b[0] for a, b in zip(p, p[1:]))
+    # nothing in the future
+    future = date.today().replace(year=date.today().year + 1)
+    assert all(p0 <= date.today() for p0, _ in S.sensor_periods("HLSS30", date.today(), future))

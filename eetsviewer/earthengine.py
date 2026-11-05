@@ -94,20 +94,20 @@ def _get_info(obj, retries=4):
         delay *= 2
 
 
-def fetch_year(sensor, lng, lat, year):
-    """All observations of `sensor` at (lat, lng) during calendar `year`.
+def fetch_period(sensor, lng, lat, p0, p1):
+    """All observations of `sensor` at (lat, lng) acquired in [p0, p1).
 
     Returns a list of dicts {id, day, values: {band: value or None}} sorted by
     date; `values` holds the raw DNs of the reflectance and QA bands.
     """
     s = SENSORS[sensor]
     point = ee.Geometry.Point([lng, lat])
-    col = build_collection(sensor, point, f"{year}-01-01", f"{year + 1}-01-01")
+    col = build_collection(sensor, point, p0.isoformat(), p1.isoformat())
     try:
         region = _get_info(col.getRegion(point, s["scale"]))
     except ee.EEException as exc:
         # getRegion fails on an empty collection: no scene of this sensor
-        # covers the location in this year, which is not an error
+        # covers the location in this period, which is not an error
         if EMPTY_COLLECTION.search(str(exc)):
             return []
         raise
@@ -128,11 +128,12 @@ def fetch_year(sensor, lng, lat, year):
     return rows
 
 
-class YearCache:
-    """LRU of (sensor, lng, lat, year) -> rows.
+class PeriodCache:
+    """LRU of (sensor, lng, lat, year, start month) -> rows.
 
-    Years that may still receive new acquisitions expire after `recent_ttl`
-    seconds; completed years are kept until evicted.
+    Periods that may still receive new acquisitions (this year and last
+    year) expire after `recent_ttl` seconds; older ones are kept until
+    evicted.
     """
 
     def __init__(self, maxsize=4000, recent_ttl=3600):
@@ -142,8 +143,8 @@ class YearCache:
         self._lock = threading.Lock()
 
     @staticmethod
-    def key(sensor, lng, lat, year):
-        return sensor, round(float(lng), 6), round(float(lat), 6), year
+    def key(sensor, lng, lat, p0):
+        return sensor, round(float(lng), 6), round(float(lat), 6), p0.year, p0.month
 
     def get(self, key):
         with self._lock:
@@ -166,15 +167,15 @@ class YearCache:
                 self._data.popitem(last=False)
 
 
-year_cache = YearCache()
+period_cache = PeriodCache()
 
 
-def fetch_year_cached(sensor, lng, lat, year):
-    key = YearCache.key(sensor, lng, lat, year)
-    rows = year_cache.get(key)
+def fetch_period_cached(sensor, lng, lat, p0, p1):
+    key = PeriodCache.key(sensor, lng, lat, p0)
+    rows = period_cache.get(key)
     if rows is None:
-        rows = fetch_year(sensor, lng, lat, year)
-        year_cache.put(key, rows)
+        rows = fetch_period(sensor, lng, lat, p0, p1)
+        period_cache.put(key, rows)
     return rows
 
 
