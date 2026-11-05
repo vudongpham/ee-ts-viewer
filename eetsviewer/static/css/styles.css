@@ -189,3 +189,69 @@ input.coord.invalid {
 #myChart {
   cursor: pointer;
 }
+
+/* overlay progress: bar under the overlay controls ... */
+#ovProgressWrap {
+  flex-basis: 100%;
+  height: 4px;
+  background: #e2e2e2;
+  border-radius: 2px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#ovProgressWrap.active {
+  opacity: 1;
+}
+
+#ovProgressBar {
+  height: 100%;
+  width: 100%;
+  background: rgb(33, 113, 181);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.2s linear;
+}
+
+/* no percentage known yet (Earth Engine request): sliding bar */
+#ovProgressWrap.indeterminate #ovProgressBar {
+  width: 30%;
+  transition: none;
+  animation: slide 1.1s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+
+/* ... and a box with a spinner on the map */
+.overlay-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  font: 13px/1.3 sans-serif;
+  color: #222;
+}
+
+.overlay-status[hidden] {
+  display: none;
+}
+
+.overlay-status .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #c8c8c8;
+  border-top-color: rgb(33, 113, 181);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
