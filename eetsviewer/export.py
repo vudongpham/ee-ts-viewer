@@ -194,18 +194,58 @@ def export_image(sensor, image_id, mask=None):
             .unmask(NODATA, False))
 
 
+_meta_cache = OrderedDict()
+_meta_lock = threading.Lock()
+
+
+def scene_meta(sensor, image_id):
+    """Acquisition time and (HLS) source product id of one scene, cached."""
+    key = (sensor, image_id)
+    with _meta_lock:
+        hit = _meta_cache.get(key)
+    if hit is not None:
+        return hit
+    s = SENSORS[sensor]
+    img = ee.Image(f"{s['collection']}/{image_id}")
+    fields = {"time": img.get("system:time_start")}
+    prop = s.get("spacecraft_property")
+    if prop:
+        fields["source"] = ee.Algorithms.If(img.propertyNames().contains(prop), img.get(prop), "")
+    meta = _retry(lambda: ee.Dictionary(fields).getInfo())
+    with _meta_lock:
+        _meta_cache[key] = meta
+        while len(_meta_cache) > 1000:
+            _meta_cache.popitem(last=False)
+    return meta
+
+
+def _check(sensor, image_id, mask):
+    if sensor not in SENSORS:
+        raise ExportError(f"Unknown sensor {sensor!r}")
+    if not IMAGE_ID.match(image_id or ""):
+        raise ExportError("Invalid image id")
+    if mask not in (None, MASK_DEFAULT, MASK_AGGRESSIVE):
+        raise ExportError(f"Unknown cloud mask {mask!r}")
+
+
+def _yyyymmdd(ms):
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y%m%d")
+
+
+def file_name(sensor, image_id, mask=None):
+    """Name of the file a download of this scene will get."""
+    _check(sensor, image_id, mask)
+    meta = scene_meta(sensor, image_id)
+    return export_name(sensor, _yyyymmdd(meta["time"]), meta.get("source"), mask)
+
+
 def plan_export(sensor, image_id, extent, view_bounds=None, mask=None):
     """Work out the output grid. One Earth Engine round trip.
 
     extent: "scene" (footprint of the scene) or "view" (the part of the
     scene inside `view_bounds` = (west, south, east, north) in degrees).
     """
-    if sensor not in SENSORS:
-        raise ExportError(f"Unknown sensor {sensor!r}")
-    if mask not in (None, MASK_DEFAULT, MASK_AGGRESSIVE):
-        raise ExportError(f"Unknown cloud mask {mask!r}")
-    if not IMAGE_ID.match(image_id or ""):
-        raise ExportError("Invalid image id")
+    _check(sensor, image_id, mask)
     s = SENSORS[sensor]
     img = ee.Image(f"{s['collection']}/{image_id}")
     grid_band = s["bands"]["BLUE"]  # finest native resolution of the sensor
@@ -251,7 +291,7 @@ def plan_export(sensor, image_id, extent, view_bounds=None, mask=None):
         raise ExportError(f"The area is too large ({width} x {height} pixels, "
                           f"at most {MAX_SIDE} x {MAX_SIDE}): zoom in")
 
-    date = datetime.fromtimestamp(info["time"] / 1000, tz=timezone.utc).strftime("%Y%m%d")
+    date = _yyyymmdd(info["time"])
     return Plan(sensor, image_id, crs, transform, width, height, date, info.get("source"), mask)
 
 
