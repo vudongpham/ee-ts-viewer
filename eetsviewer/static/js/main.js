@@ -873,7 +873,7 @@ function setExportProgress(fraction) {
 function setExportRunning(on) {
   const b = $('downloadOverlay');
   b.classList.toggle('running', on);
-  b.textContent = on ? 'Cancel download' : 'Download current overlayed image';
+  b.textContent = on ? 'Cancel download' : 'Download selected image';
   b.disabled = !on && !overlayPoint;
   $('exportExtent').disabled = on;
   $('exportData').disabled = on;

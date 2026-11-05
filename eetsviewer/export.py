@@ -59,7 +59,7 @@ class Plan:
         self.date = date                  # YYYYMMDD
         self.bands = [b for b, _ in s["export"]]
         self.descriptions = [f"{b} ({name})" for b, name in s["export"]]
-        self.name = export_name(sensor, date, source_id)   # {product}_{sensor}_{YYYYMMDD}.tif
+        self.name = export_name(sensor, date, source_id, mask)  # {product}_{sensor}_{YYYYMMDD}[_masked].tif
 
     @property
     def blocks(self):

@@ -289,3 +289,11 @@ def test_cloud_mask_matches_time_series_rules(monkeypatch):
     cs = rng.random(n)
     _check_mask(monkeypatch, "SEN2B", {"SCL": scl}, cs, n)
     _check_mask(monkeypatch, "SEN2B", {"SCL": scl}, None, n)
+
+
+def test_masked_plan_name(monkeypatch):
+    monkeypatch.setattr(ex, "ee", FakeEE(s2_info()))
+    sid = "20240212T101021_20240212T101019_T32UQD"
+    assert ex.plan_export("SEN2A", sid, "scene", mask=1).name == "S2SR_SEN2A_20240212_masked.tif"
+    assert ex.plan_export("SEN2A", sid, "scene", mask=2).name == "S2SR_SEN2A_20240212_masked_aggressive.tif"
+    assert ex.plan_export("SEN2A", sid, "scene").name == "S2SR_SEN2A_20240212.tif"

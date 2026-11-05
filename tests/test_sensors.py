@@ -162,3 +162,10 @@ def test_export_names():
     # unknown source: family code
     assert S.export_name("HLSL30", "20240212", "") == "HLSL30_LND_20240212.tif"
     assert S.export_name("HLSS30", "20240212", None) == "HLSS30_SEN2_20240212.tif"
+
+
+def test_export_names_masked():
+    assert S.export_name("SEN2A", "20240212", mask=None) == "S2SR_SEN2A_20240212.tif"
+    assert S.export_name("SEN2A", "20240212", mask=S.MASK_DEFAULT) == "S2SR_SEN2A_20240212_masked.tif"
+    assert S.export_name("HLSS30", "20240212", "S2B_MSIL1C_x", S.MASK_AGGRESSIVE) == \
+        "HLSS30_SEN2B_20240212_masked_aggressive.tif"
