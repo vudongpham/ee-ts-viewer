@@ -1,4 +1,6 @@
 import argparse
+import json
+import logging
 import os
 import threading
 import time
@@ -8,7 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from flask import Flask, Response, jsonify, render_template, request
+from flask import cli as flask_cli
 
+from . import console
 from . import earthengine as eeapi
 from .sensors import ALL_BANDS, SENSOR_GROUPS, SENSORS, compute_value, is_clear, sensor_periods
 
@@ -85,6 +89,7 @@ class Job:
             if name is not None:
                 self.name = name
             self.elapsed = time.perf_counter() - self.started
+        report_finished(self)
 
     def cancel(self):
         self.cancelled.set()
@@ -104,6 +109,68 @@ def register_job(job):
         while len(jobs) > MAX_JOBS:
             _, old = jobs.popitem(last=False)
             old.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Terminal output (one start and one result line per time series)
+# ---------------------------------------------------------------------------
+
+MASK_NAMES = {0: "no cloud mask", 1: "Default mask", 2: "Aggressive mask"}
+
+
+def short_error(text, limit=160):
+    """(Earth Engine) error message on one line, shortened."""
+    one = " ".join(str(text).split()) or "unknown error"
+    return one if len(one) <= limit else one[: limit - 1] + "…"
+
+
+def sensor_summary(sensors):
+    """e.g. "Landsat 5/7/8 + Sentinel-2A/B" or "HLSL30 + HLSS30"."""
+    lnd = [s[-1] if s[-2] == "0" else s[-2:] for s in sensors if s.startswith("LND")]
+    sen = [s[-1] for s in sensors if s.startswith("SEN")]
+    parts = []
+    if lnd:
+        parts.append("Landsat " + "/".join(lnd))
+    if sen:
+        parts.append("Sentinel-2" + "/".join(sen))
+    parts += [s for s in sensors if s.startswith("HLS")]
+    return " + ".join(parts) or "no sensor"
+
+
+def report_started(job, lat, lng, start, end, sensors, band, cloud_mask):
+    console.info("Time series",
+                 f"{lat:.5f}, {lng:.5f} · {start} → {end} · {band} · "
+                 f"{MASK_NAMES.get(cloud_mask, cloud_mask)} · {sensor_summary(sensors)} "
+                 + console.style(f"({job.total} requests)", "grey"))
+
+
+def report_progress(job):
+    with job.lock:
+        current, total, images, valid = job.current, job.total, job.images, job.valid
+    console.progress(job.id, current, total,
+                     f"{current}/{total} requests · {images} images · {valid} clear",
+                     force=current >= total)
+
+
+def report_finished(job):
+    console.end_progress(job.id)
+    with job.lock:
+        status, name, total, current = job.status, job.name, job.total, job.current
+        images, valid, failed, err = job.images, job.valid, job.failed, job.last_error
+        elapsed = console.fmt_seconds(job.elapsed)
+    if status == "done" and not total:
+        console.ok("Time series", name)
+    elif status == "done":
+        text = f"{valid} clear observations of {images} images · {elapsed}"
+        if failed:
+            console.warn("Time series", f"{text} · {failed} of {total} requests failed "
+                                        f"({short_error(err)})")
+        else:
+            console.ok("Time series", text)
+    elif status == "error":
+        console.error("Time series", short_error(name))
+    elif status == "cancelled":
+        console.stopped("Time series", f"stopped after {current}/{total} requests · {elapsed}")
 
 
 def observations(sensor, rows, first_day, last_day, band, cloud_mask):
@@ -139,7 +206,7 @@ def run_request(job, sensor, period, lat, lng, first_day, last_day, band, cloud_
         images, points = observations(sensor, rows, first_day, last_day, band, cloud_mask)
     except Exception as exc:  # keep going, report it at the end
         error = str(exc)
-        app.logger.warning("Request %s %s failed: %s", sensor, period[0], exc)
+        console.warn("Request", f"{sensor} from {period[0]:%Y-%m-%d} failed: {short_error(exc)}")
 
     with job.lock:
         job.current += 1
@@ -151,6 +218,7 @@ def run_request(job, sensor, period, lat, lng, first_day, last_day, band, cloud_
             job.last_error = error
         done = job.current >= job.total
         failed_all = job.failed == job.total
+    report_progress(job)
     if done:
         if failed_all:
             job.finish("error", f"Earth Engine error: {error}")
@@ -172,6 +240,7 @@ def start_job(job, lat, lng, start_date, end_date, sensors, band, cloud_mask):
         if not requests:
             job.finish("done", "No sensor was operating in the selected period")
             return
+        report_started(job, lat, lng, start, end, sensors, band, cloud_mask)
 
         pool = get_executor()
         # newest periods first: they are the most interesting and least cached
@@ -274,7 +343,7 @@ def load_exporter():
         return export
     except ImportError as exc:
         if _export_error is None:
-            app.logger.warning("GeoTIFF download is not available: %s", exc)
+            console.warn("Download", f"GeoTIFF download is not available: {exc}")
         _export_error = str(exc)
         return None
 
@@ -349,17 +418,26 @@ def export_file(job_id):
         return jsonify({"status": "error", "error": "File not available"}), 404
     path, name = job.path, job.plan.name
 
+    size = os.path.getsize(path)
+
     def stream():
+        sent = 0
         try:
             with open(path, "rb") as f:
                 while chunk := f.read(1 << 20):
+                    sent += len(chunk)
                     yield chunk
         finally:  # runs when the download ends or the connection closes
             exporter.forget_export(job_id)
+            if sent >= size:
+                console.ok("Download", f"{name} sent to the browser")
+            else:
+                console.warn("Download", f"{name}: the browser stopped the transfer "
+                                         f"({console.fmt_bytes(sent)} of {console.fmt_bytes(size)})")
 
     return Response(stream(), mimetype="image/tiff", headers={
         "Content-Disposition": f'attachment; filename="{name}"',
-        "Content-Length": str(os.path.getsize(path)),
+        "Content-Length": str(size),
         "Cache-Control": "no-store",
     })
 
@@ -381,12 +459,48 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=DEFAULT_WORKERS,
                         help=f"Number of parallel Earth Engine requests. Default: {DEFAULT_WORKERS}")
     parser.add_argument("--debug", action="store_true", help="Run Flask in debug mode")
+    parser.add_argument("--log-requests", action="store_true",
+                        help="Also log every HTTP request (off by default to keep the output readable)")
     args = parser.parse_args()
 
-    project = eeapi.initialize(args.project, args.key, args.high_volume)
-    print(f"Earth Engine initialised (project: {project})")
+    console.line("…", "Earth Engine", "connecting…")
+    try:
+        project = eeapi.initialize(args.project, args.key, args.high_volume)
+    except SystemExit as exc:          # no project given
+        console.error("Earth Engine", str(exc))
+        raise SystemExit(1)
+    except Exception as exc:
+        console.error("Earth Engine", short_error(exc, 300))
+        hint = ("check the service account key and that it has access to the project"
+                if args.key else
+                "log in once with `earthengine authenticate` (see README, section 1), "
+                "and check that the project is registered for Earth Engine")
+        console.line(" ", "", console.style(hint, "dim"))
+        raise SystemExit(1)
+
+    if args.key:
+        with open(args.key) as f:
+            who = f"service account {json.load(f).get('client_email', '?')}"
+    else:
+        who = "your Google account (earthengine authenticate)"
 
     app.config["WORKERS"] = max(1, args.workers)
+    console.banner([
+        ("Open in browser", console.style(f"http://localhost:{args.port}", "bold")),
+        ("Earth Engine", f"project {project}" + (" · high-volume endpoint" if args.high_volume else "")),
+        ("Credentials", who),
+        ("Parallel requests", str(app.config["WORKERS"])),
+    ])
+    if not console._tty:
+        console.line(" ", "", console.style(
+            "tip: run docker with -t to see a live progress bar", "dim"))
+
+    if not (args.debug or args.log_requests):
+        # no "GET /status/... 200" line for every poll of the browser, and no
+        # Flask development-server banner (the banner above replaces it)
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        flask_cli.show_server_banner = lambda *a, **k: None
+
     app.run(host="0.0.0.0", port=args.port, debug=args.debug, threaded=True,
             use_reloader=args.debug)
 

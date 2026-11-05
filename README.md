@@ -80,14 +80,14 @@ or install with pip: `pip install git+https://github.com/vudongpham/ee-ts-viewer
 ### 3. Run
 With your own account (a):
 ```
-docker run --rm \
+docker run --rm -t \
   -v ~/.config/earthengine:/root/.config/earthengine \
   -p 2742:2742 \
   vudongpham/eetsviewer eetsviewer --project your-gcp-project
 ```
 With a service account (b):
 ```
-docker run --rm \
+docker run --rm -t \
   -v /path/to/key.json:/key.json:ro \
   -p 2742:2742 \
   vudongpham/eetsviewer eetsviewer --key /key.json
@@ -101,7 +101,17 @@ Then open `http://localhost:2742` in any web browser.
 - `--high-volume`: use the Earth Engine [high-volume endpoint](https://developers.google.com/earth-engine/guides/processing_environments#high-volume_endpoint)
 - `-p` | `--port`: Local port used to host the app. Default: `2742`. If you change it, change the docker `-p` to match
 - `-w` | `--workers`: Number of parallel Earth Engine requests. Default: `12`
+- `--log-requests`: also log every HTTP request (off by default)
 - `--debug`: Run Flask in debug mode
+
+**Terminal output**: after a short start-up banner, the terminal shows one start line and one result line per time series and per download, e.g.
+```
+16:24:50  ▶ Time series  52.50000, 13.40000 · 2023-01-01 → 2024-12-31 · NDVI · Default mask · Landsat 7/8/9 + Sentinel-2A/B (10 requests)
+16:24:53  ✔ Time series  157 clear observations of 238 images · 3.1 s
+16:24:55  ▶ Download     S2SR_SEN2A_20240212.tif · cloud masked (Default) · 3000 × 2600 px · 12 bands (9 blocks)
+16:24:58  ✔ Download     S2SR_SEN2A_20240212.tif ready · 41.2 MB · 3.2 s
+```
+With `docker run -t` (as above) the output is coloured and a live progress bar is shown while a job runs; without `-t` only these lines are written. Set `NO_COLOR=1` to turn colours off.
 
 ### Notes
 - The extraction is split into one Earth Engine `getRegion` request per sensor and calendar year. HLSL30 (Landsat 8 + 9 in one collection) is split into 4-month parts and HLSS30 (Sentinel-2A/B/C in one collection) into 2-month parts, so their requests are about as small as those of the individual sensors. Only the parts that overlap the date range are requested. The requests run in parallel, and their results stream into the progress bar. A new click cancels the previous request.
