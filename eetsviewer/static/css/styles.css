@@ -49,6 +49,23 @@ html, body {
   white-space: nowrap;
 }
 
+.sensorGroup {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin: 0.4rem 0;
+  padding: 0.3rem 0.75rem 0.5rem;
+  transition: opacity 0.2s ease;
+}
+
+.sensorGroup legend {
+  padding: 0 0.3rem;
+}
+
+/* the inactive group is greyed out; its radio button stays clickable */
+.sensorGroup:disabled > label {
+  opacity: 0.4;
+}
+
 input.coord {
   width: 8.5em;
   font-family: monospace;

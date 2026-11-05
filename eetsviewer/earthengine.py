@@ -188,7 +188,7 @@ VIS_PRESETS = {
     "swir":  (("SWIR2", "NIR", "RED"), 0, 5000),
 }
 
-IMAGE_ID = re.compile(r"^[A-Za-z0-9_]+$")
+IMAGE_ID = re.compile(r"^[A-Za-z0-9_.-]+$")  # e.g. HLS ids contain dots
 
 _tile_cache = OrderedDict()
 _tile_lock = threading.Lock()
@@ -215,6 +215,8 @@ def tile_url(sensor, image_id, vis="true"):
     img = ee.Image(f"{s['collection']}/{image_id}").select([s["bands"][b] for b in bands])
     if s["family"] == "LND":
         img = img.multiply(LANDSAT_GAIN).add(LANDSAT_OFFSET)
+    elif s["family"] == "HLS":
+        img = img.multiply(10000)
     map_id = img.getMapId({"min": vmin, "max": vmax, "gamma": 1.2})
     url = map_id["tile_fetcher"].url_format
 

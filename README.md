@@ -6,6 +6,10 @@
 
 ### Data
 
+The sensors come in two groups. Pick one with the radio button; the other group is greyed out.
+
+**Individual Sensors**
+
 | Sensor | Earth Engine collection |
 |---|---|
 | Landsat 4 TM | `LANDSAT/LT04/C02/T1_L2` |
@@ -15,6 +19,15 @@
 | Landsat 9 OLI-2 | `LANDSAT/LC09/C02/T1_L2` |
 | Sentinel-2A/B/C MSI | `COPERNICUS/S2_SR_HARMONIZED` (split by `SPACECRAFT_NAME`) |
 | Sentinel-2 cloud score | `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` (`cs_cdf`) |
+
+**Harmonized Sensors**
+
+| Sensor | Earth Engine collection |
+|---|---|
+| HLS-2 Landsat 8/9 OLI | `NASA/HLS/HLSL30/v002` (HLSL30, from April 2013) |
+| HLS-2 Sentinel-2A/B/C MSI | `NASA/HLS/HLSS30/v002` (HLSS30, from November 2015) |
+
+HLS (Harmonized Landsat Sentinel-2) surface reflectance is BRDF-normalised and bandpass-adjusted to a common reference, on the 30 m Sentinel-2 MGRS tile grid, so HLSL30 and HLSS30 can be combined into one dense time series. You can select either or both. HLSL30 uses the Landsat 8/9 bands (B2–B7), HLSS30 the Sentinel-2 bands of the table above (the red-edge bands and broad NIR are available for HLSS30 only, and are not bandpass-adjusted). Both are cloud-screened with their `Fmask` band.
 
 Landsat is Collection 2, Level-2 surface reflectance (Tier 1). All reflectances are shown × 10000, the same as FORCE BOA. Landsat DNs are scaled with `DN × 0.0000275 − 0.2`.
 
@@ -29,16 +42,18 @@ Landsat is Collection 2, Level-2 surface reflectance (Tier 1). All reflectances 
 | SWIR1 | SR_B5 | SR_B6 | B11 |
 | SWIR2 | SR_B7 | SR_B7 | B12 |
 
-The indices NDVI, EVI, NBR, NDMI and NDWI (McFeeters) are × 10000 too. They use the NIR row above, so on Sentinel-2 that is B8A, as in FORCE.
+The indices NDVI, EVI, NBR, NDMI and NDWI (McFeeters) are × 10000 too, as are the Tasseled Cap Brightness, Greenness and Wetness. These use the reflectance-factor coefficients of [Crist (1985)](https://doi.org/10.1016/0034-4257(85)90102-6) on Blue, Green, Red, NIR, SWIR1 and SWIR2 for every sensor, as FORCE does. They use the NIR row above, so on Sentinel-2 that is B8A, as in FORCE.
 
 **Cloud mask**
 - *None*: only fill / no-data pixels are removed.
 - *Default*
   - Landsat: `QA_PIXEL` cloud, dilated cloud, cirrus, cloud shadow and snow bits must be 0.
   - Sentinel-2: `SCL` must be 2, 4, 5, 6 or 7, and Cloud Score+ `cs_cdf` ≥ 0.50.
+  - HLS: `Fmask` cloud, adjacent to cloud/shadow, cloud shadow and snow/ice bits must be 0.
 - *Aggressive*
   - Landsat: Default, plus no medium/high cloud or cirrus confidence, no high shadow/snow confidence, no saturation (`QA_RADSAT`), no high aerosol (L8/9 `SR_QA_AEROSOL`) and atmospheric opacity ≤ 0.3 (L4–7).
   - Sentinel-2: `SCL` must be 4, 5 or 6, and `cs_cdf` ≥ 0.65.
+  - HLS: Default, plus no high aerosol (`Fmask` bits 6–7).
 
 If several scenes of the same sensor cover the location on the same day (overlapping Sentinel-2 granules or Landsat rows), only the first clear one is kept.
 

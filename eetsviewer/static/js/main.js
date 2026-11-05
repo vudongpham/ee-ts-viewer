@@ -2,12 +2,15 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const Y_MAX = 10000;      // top of the y axis
-const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI']);
+const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'TCB', 'TCG', 'TCW']);
+const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
 const POLL_MS = 120;          // status poll interval while a job is running
 
 const COLORS = {
   LND: { face: 'rgb(197, 27, 138)', edge: 'rgb(0, 0, 0)' },
   SEN: { face: 'rgb(35, 139, 69)', edge: 'rgb(0, 0, 0)' },
+  HLSL30: { face: 'rgb(230, 145, 20)', edge: 'rgb(0, 0, 0)' },
+  HLSS30: { face: 'rgb(33, 113, 181)', edge: 'rgb(0, 0, 0)' },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -99,7 +102,7 @@ async function showOverlay(p) {
     } else {
       overlay = L.tileLayer(d.url, {
         maxZoom: 19, opacity: Number($('opacity').value), zIndex: 10,
-        attribution: 'Imagery: Google Earth Engine (Copernicus Sentinel-2 / USGS Landsat)',
+        attribution: 'Imagery: Google Earth Engine (Copernicus Sentinel-2 / USGS Landsat / NASA HLS)',
       }).addTo(map);
     }
     setOverlayInfo(`${what} · ${p.id}`);
@@ -118,7 +121,8 @@ async function showOverlay(p) {
 // (Landsat, Sentinel-2) and never the line: with dense lines (harmonic fits,
 // moving average) the line would otherwise almost always be the nearest
 // element, leaving the tooltip with nothing to show.
-const LINE_DS = 2;
+const LINE_DS = 4;
+const HLS_DS = [2, 3];       // datasets of the harmonized group
 Chart.Interaction.modes.nearestObservation = (chart, e) => {
   const pos = Chart.helpers.getRelativePosition(e, chart);
   let best = [], bestDist = Infinity;
@@ -164,6 +168,26 @@ const chart = new Chart($('myChart').getContext('2d'), {
         order: 2,
       },
       {
+        label: 'HLS L30 (Landsat)',
+        data: [],
+        pointRadius: highlightRadius,
+        pointHoverRadius: 8,
+        backgroundColor: COLORS.HLSL30.face,
+        borderColor: COLORS.HLSL30.edge,
+        borderWidth: 1,
+        order: 3,
+      },
+      {
+        label: 'HLS S30 (Sentinel-2)',
+        data: [],
+        pointRadius: highlightRadius,
+        pointHoverRadius: 8,
+        backgroundColor: COLORS.HLSS30.face,
+        borderColor: COLORS.HLSS30.edge,
+        borderWidth: 1,
+        order: 4,
+      },
+      {
         label: 'Linear interpolation',
         type: 'line',
         data: [],
@@ -172,7 +196,7 @@ const chart = new Chart($('myChart').getContext('2d'), {
         borderWidth: 1.5,
         borderColor: 'rgba(0, 0, 0, 0.75)',
         tension: 0,
-        order: 3,
+        order: 5,
       },
     ],
   },
@@ -205,7 +229,11 @@ const chart = new Chart($('myChart').getContext('2d'), {
     plugins: {
       decimation: { enabled: false },
       legend: {
-        labels: { filter: (item) => item.datasetIndex !== LINE_DS || $('lineMode').value !== 'none' },
+        labels: {
+          filter: (item, data) => (item.datasetIndex === LINE_DS
+            ? $('lineMode').value !== 'none'
+            : (sensorMode() === 'harmonized') === HLS_DS.includes(item.datasetIndex)),
+        },
       },
       tooltip: {
         filter: (item) => item.datasetIndex !== LINE_DS,
@@ -407,12 +435,22 @@ function applyLineMode(ds) {
 }
 
 function render() {
-  const lnd = [], sen = [];
-  for (const p of series) (p.s.startsWith('LND') ? lnd : sen).push(p);
+  const lnd = [], sen = [], l30 = [], s30 = [];
+  for (const p of series) {
+    if (p.s.startsWith('LND')) lnd.push(p);
+    else if (p.s === 'HLSL30') l30.push(p);
+    else if (p.s === 'HLSS30') s30.push(p);
+    else sen.push(p);
+  }
   const ds = chart.data.datasets;
   ds[0].data = lnd;
   ds[1].data = sen;
-  applyLineMode(ds[2]);
+  ds[2].data = l30;
+  ds[3].data = s30;
+  // only show the sensor datasets of the selected group
+  const harmonized = sensorMode() === 'harmonized';
+  for (let i = 0; i < LINE_DS; i++) chart.setDatasetVisibility(i, HLS_DS.includes(i) === harmonized);
+  applyLineMode(ds[LINE_DS]);
 
   const ys = series.map((p) => p.y);
   const minY = ys.length ? Math.min(...ys) : 0;
@@ -438,7 +476,8 @@ function resetChart(startDate, endDate, band) {
   const o = chart.options.scales;
   o.x.min = startDate;
   o.x.max = endDate;
-  o.y.title.text = INDEX_BANDS.has(band) ? `${band} × 10000` : `${band} reflectance × 10000`;
+  const name = BAND_TITLES[band] || band;
+  o.y.title.text = INDEX_BANDS.has(band) ? `${name} × 10000` : `${name} reflectance × 10000`;
   showChart(false);
 }
 
@@ -460,8 +499,9 @@ function readOptions() {
   const lng = $('lng').value.trim();
   const startDate = $('startDate').value;
   const endDate = $('endDate').value;
+  // only the sensors of the active group (the other fieldset is disabled)
   const sensorList = Array.from(
-    document.querySelectorAll('#sGroups input[name="selectedSensors"]:checked')
+    document.querySelectorAll('#sGroups input[name="selectedSensors"]:checked:enabled')
   ).map((el) => el.value);
   const band = $('Bands').value;
   const cloudMask = document.querySelector('input[name="cloudOption"]:checked').value;
@@ -475,8 +515,8 @@ function validate(o, silent) {
   else if (o.startDate > o.endDate) msg = 'Start date cannot be after End date';
   else if (o.sensorList.length === 0) msg = 'Sensor list cannot be empty';
   else if ($('Bands').selectedOptions[0].hasAttribute('data-s2only')
-           && !o.sensorList.some((s) => s.startsWith('SEN'))) {
-    msg = `${o.band} exists for Sentinel-2 only: please select a Sentinel-2 sensor`;
+           && !o.sensorList.some((s) => s.startsWith('SEN') || s === 'HLSS30')) {
+    msg = `${o.band} exists for Sentinel-2 only: please select a Sentinel-2 sensor (Sentinel-2A/B/C or HLSS30)`;
   }
   if (msg && !silent) alert(msg);
   return !msg;
@@ -717,3 +757,21 @@ $('csvButton').addEventListener('click', (e) => {
 $('visMode').addEventListener('change', () => { if (overlayPoint) showOverlay(overlayPoint); });
 $('opacity').addEventListener('input', (e) => { if (overlay) overlay.setOpacity(Number(e.target.value)); });
 $('clearOverlay').addEventListener('click', removeOverlay);
+
+// sensor groups: Individual or Harmonized; the other group is greyed out
+function sensorMode() {
+  const el = document.querySelector('input[name="sensorMode"]:checked');
+  return el ? el.value : 'individual';
+}
+
+function applySensorMode() {
+  const mode = sensorMode();
+  document.querySelectorAll('#sGroups .sensorGroup').forEach((fs) => {
+    fs.disabled = fs.dataset.group !== mode;
+  });
+}
+
+document.querySelectorAll('input[name="sensorMode"]').forEach((el) => {
+  el.addEventListener('change', applySensorMode);
+});
+applySensorMode();
