@@ -908,10 +908,12 @@ function updateSelectedInfo() {
     $('dbScene').textContent = 'No image selected: click an observation in the chart';
     $('dbId').textContent = '';
     setFileName('');
+    updateCloudCover();
     return;
   }
   $('dbScene').textContent = `${SENSOR_LABELS[p.s] || p.s} · ${fmtDate(p.x)}`;
   $('dbId').textContent = p.id;
+  updateCloudCover();
   const mask = exportMask();
   const key = `${p.s}/${p.id}/${mask}`;
   if (key === shownScene) return;
@@ -927,6 +929,60 @@ function updateSelectedInfo() {
       else setFileName(`File name unavailable: ${d.error || 'unknown error'}`, true);
     })
     .catch((err) => { if (req === nameRequest) setFileName(`File name unavailable: ${err.message}`, true); });
+}
+
+// Cloud cover of the selected scene: pixels removed by the Cloud mask of
+// the panel (None -> Default, as for the cloud-masked download) / valid
+// pixels, computed by Earth Engine for the whole scene
+const MASK_LABELS = { 1: 'Default', 2: 'Aggressive' };
+let shownCloud = null;
+let cloudRequest = 0;
+const cloudResults = new Map();   // scene/level -> result, so switching back is instant
+
+function showCloud(el, label, d) {
+  if (d.cloud != null) {
+    el.innerHTML = `${label}: <span class="db-cloud-value">${d.cloud.toFixed(1)} %</span>`;
+    el.title = `${d.valid_pixels.toLocaleString('en')} valid pixels on a ${d.scale} m grid; ` +
+               'masked pixels (clouds, shadows, snow, ...) / valid pixels of the whole scene';
+  } else {
+    el.textContent = `${label}: unavailable (${d.error || 'no valid pixels'})`;
+    el.classList.add('error');
+  }
+}
+
+function updateCloudCover() {
+  const el = $('dbCloud');
+  const p = overlayPoint;
+  if (!p) {
+    shownCloud = null;
+    cloudRequest++;
+    el.textContent = '';
+    return;
+  }
+  const panel = Number(document.querySelector('input[name="cloudOption"]:checked').value);
+  const level = panel >= 1 ? panel : 1;
+  const key = `${p.s}/${p.id}/${level}`;
+  if (key === shownCloud) return;
+  shownCloud = key;
+  const req = ++cloudRequest;
+  const label = `Cloud cover (${MASK_LABELS[level]} mask)`;
+  el.classList.remove('error');
+  el.title = '';
+  if (cloudResults.has(key)) { showCloud(el, label, cloudResults.get(key)); return; }
+  el.innerHTML = `${label}: <span class="db-cloud-value">computing…</span>`;
+  const params = new URLSearchParams({ sensor: p.s, id: p.id, mask: level });
+  fetch(`/export/cloud?${params}`)
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.cloud != null) cloudResults.set(key, d);
+      if (req !== cloudRequest) return;
+      showCloud(el, label, d);
+    })
+    .catch((err) => {
+      if (req !== cloudRequest) return;
+      el.textContent = `${label}: unavailable (${err.message})`;
+      el.classList.add('error');
+    });
 }
 
 function setFileName(text, isError) {

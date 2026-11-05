@@ -375,6 +375,21 @@ def export_start():
     return jsonify(exporter.start_export(plan).snapshot())
 
 
+@app.route("/export/cloud")
+def export_cloud_route():
+    """Cloud cover (%) of the selected scene, for the download block."""
+    exporter = load_exporter()
+    if exporter is None:
+        return jsonify({"error": f"Not available on this server: {_export_error}"}), 500
+    try:
+        level = int(request.args.get("mask", 1))
+        return jsonify(exporter.cloud_cover(request.args.get("sensor"), request.args.get("id"), level))
+    except (exporter.ExportError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Earth Engine error: {short_error(exc)}"}), 502
+
+
 @app.route("/export/name")
 def export_name_route():
     """File name a download of this scene will get (shown in the download block)."""

@@ -233,6 +233,47 @@ def _yyyymmdd(ms):
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y%m%d")
 
 
+CLOUD_SCALE = 100   # m; grid of the cloud-cover estimate (fast, ample precision)
+_cloud_cache = OrderedDict()
+
+
+def cloud_cover(sensor, image_id, level):
+    """Cloud cover of the whole scene in percent: pixels removed by the
+    cloud mask `level` (clouds, shadows, snow, ...) / valid pixels (pixels
+    with data, i.e. not fill / no-data), on a 100 m grid. Cached."""
+    _check(sensor, image_id, level)
+    if level is None:
+        raise ExportError("A cloud mask level is required")
+    key = (sensor, image_id, level)
+    with _meta_lock:
+        hit = _cloud_cache.get(key)
+    if hit is not None:
+        return hit
+
+    s = SENSORS[sensor]
+    scene = ee.Image(f"{s['collection']}/{image_id}")
+    valid = clear_mask(sensor, scene, image_id, 0)          # data, no fill
+    clear = clear_mask(sensor, scene, image_id, level)
+    # mean of "clear" over the valid pixels = clear fraction
+    frac = (clear.And(valid).rename("clear").updateMask(valid)
+            .reduceRegion(reducer=ee.Reducer.mean().combine(ee.Reducer.count(), sharedInputs=True),
+                          geometry=scene.geometry(), scale=CLOUD_SCALE,
+                          crs=scene.select(s["bands"]["BLUE"]).projection(),
+                          maxPixels=1e9))
+    info = _retry(lambda: frac.getInfo())
+    mean, count = info.get("clear_mean"), info.get("clear_count") or 0
+    result = {
+        "cloud": None if mean is None or not count else round(100 * (1 - mean), 1),
+        "valid_pixels": int(count),
+        "scale": CLOUD_SCALE,
+    }
+    with _meta_lock:
+        _cloud_cache[key] = result
+        while len(_cloud_cache) > 1000:
+            _cloud_cache.popitem(last=False)
+    return result
+
+
 def file_name(sensor, image_id, mask=None):
     """Name of the file a download of this scene will get."""
     _check(sensor, image_id, mask)

@@ -72,6 +72,7 @@ With `-t`, the terminal shows coloured output and a live progress bar; without i
 **Scene overlay**: click an observation in the chart to show that scene on the map (true color, false color or SWIR, adjustable opacity). The selected observation gets a yellow edge.
 
 **Download selected image**: the block at the top right of the map saves the overlaid scene as a GeoTIFF.
+- Shows the selected image (sensor, date, image ID, file name) and its cloud cover: pixels removed by the selected cloud mask / valid pixels of the whole scene, in %
 - *Data*: *Raw*, or *Cloud masked* with the selected cloud mask (cloudy pixels set to nodata)
 - *Area*: *Map view* or *Full scene*
 - All reflective bands, int16, reflectance × 10000, nodata −9999, native projection and resolution
