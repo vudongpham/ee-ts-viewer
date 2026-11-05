@@ -919,6 +919,23 @@ const SENSOR_LABELS = Object.fromEntries(
 let shownScene = null;     // scene + options the file name was fetched for
 let nameRequest = 0;
 
+// long ids and file names wrap after an underscore, not inside a word
+function setBreakable(el, text) {
+  el.textContent = '';
+  String(text).split(/(?<=_)/).forEach((part, i) => {
+    if (i) el.appendChild(document.createElement('wbr'));
+    el.appendChild(document.createTextNode(part));
+  });
+}
+
+// sensor chip in the card header, in the colour of its points in the chart
+function setBadge(sensor) {
+  const b = $('dbBadge');
+  b.textContent = sensor ? (SENSOR_LABELS[sensor] || sensor) : '';
+  b.classList.toggle('lnd', !!sensor && (sensor.startsWith('LND') || sensor === 'HLSL30'));
+  b.classList.toggle('sen', !!sensor && (sensor.startsWith('SEN') || sensor === 'HLSS30'));
+}
+
 // name of the selected image in the download block: sensor and date, the
 // Earth Engine image id and the name of the file the download will get
 function updateSelectedInfo() {
@@ -928,7 +945,8 @@ function updateSelectedInfo() {
   if (!p) {
     shownScene = null;
     nameRequest++;
-    $('dbScene').textContent = 'No image selected: click an observation in the chart';
+    $('dbScene').textContent = 'No image selected';
+    setBadge(null);
     $('dbId').textContent = '';
     setFileName('');
     updateCloudCover();
@@ -936,8 +954,11 @@ function updateSelectedInfo() {
     setSize('');
     return;
   }
-  $('dbScene').textContent = `${SENSOR_LABELS[p.s] || p.s} · ${fmtDate(p.x)}`;
-  $('dbId').textContent = p.id;
+  $('dbScene').textContent = new Date(p.x).toLocaleDateString('en-GB',
+    { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  setBadge(p.s);
+  setBreakable($('dbId'), p.id);
+  $('dbId').title = p.id;
   updateCloudCover();
   loadSceneInfo(p);
   const mask = exportMask();
@@ -945,16 +966,16 @@ function updateSelectedInfo() {
   if (key === shownScene) return;
   shownScene = key;
   const req = ++nameRequest;
-  setFileName('File: …');
+  setFileName('…');
   const params = new URLSearchParams({ sensor: p.s, id: p.id, mask: mask == null ? 'raw' : mask });
   fetch(`/export/name?${params}`)
     .then((r) => r.json())
     .then((d) => {
       if (req !== nameRequest) return;
-      if (d.name) setFileName(`File: ${d.name}`);
-      else setFileName(`File name unavailable: ${d.error || 'unknown error'}`, true);
+      if (d.name) setFileName(d.name);
+      else setFileName(`unavailable: ${d.error || 'unknown error'}`, true);
     })
-    .catch((err) => { if (req === nameRequest) setFileName(`File name unavailable: ${err.message}`, true); });
+    .catch((err) => { if (req === nameRequest) setFileName(`unavailable: ${err.message}`, true); });
 }
 
 // Cloud cover of the selected scene: pixels removed by the Cloud mask of
@@ -967,11 +988,13 @@ const cloudResults = new Map();   // scene/level -> result, so switching back is
 
 function showCloud(el, label, d) {
   if (d.cloud != null) {
-    el.innerHTML = `${label}: <span class="db-cloud-value">${d.cloud.toFixed(1)} %</span>`;
+    el.innerHTML = `<div class="db-cloud-row"><span class="db-cloud-value">${d.cloud.toFixed(1)} %</span>` +
+      `<span class="db-cloud-mask">${label}</span></div>` +
+      `<div class="db-meter"><span style="width:${Math.min(100, Math.max(0, d.cloud))}%"></span></div>`;
     el.title = `${d.valid_pixels.toLocaleString('en')} valid pixels on a ${d.scale} m grid; ` +
                'masked pixels (clouds, shadows, snow, ...) / valid pixels of the whole scene';
   } else {
-    el.textContent = `${label}: unavailable (${d.error || 'no valid pixels'})`;
+    el.textContent = `unavailable (${d.error || 'no valid pixels'})`;
     el.classList.add('error');
   }
 }
@@ -991,11 +1014,11 @@ function updateCloudCover() {
   if (key === shownCloud) return;
   shownCloud = key;
   const req = ++cloudRequest;
-  const label = `Cloud cover (${MASK_LABELS[level]} mask)`;
+  const label = `${MASK_LABELS[level]} mask`;
   el.classList.remove('error');
   el.title = '';
   if (cloudResults.has(key)) { showCloud(el, label, cloudResults.get(key)); return; }
-  el.innerHTML = `${label}: <span class="db-cloud-value">computing…</span>`;
+  el.innerHTML = `<div class="db-cloud-row"><span class="db-cloud-mask">computing…</span></div>`;
   const params = new URLSearchParams({ sensor: p.s, id: p.id, mask: level });
   fetch(`/export/cloud?${params}`)
     .then((r) => r.json())
@@ -1006,7 +1029,7 @@ function updateCloudCover() {
     })
     .catch((err) => {
       if (req !== cloudRequest) return;
-      el.textContent = `${label}: unavailable (${err.message})`;
+      el.textContent = `unavailable (${err.message})`;
       el.classList.add('error');
     });
 }
@@ -1070,14 +1093,14 @@ map.on('moveend', () => { if (overlayPoint) updateSizeEstimate(); });
 
 function setFileName(text, isError) {
   const el = $('dbFile');
-  el.textContent = text;
+  setBreakable(el, text);
   el.classList.toggle('error', !!isError);
 }
 
 function setExportRunning(on) {
   const b = $('downloadOverlay');
   b.classList.toggle('running', on);
-  b.textContent = on ? 'Cancel download' : 'Download selected image';
+  $('downloadLabel').textContent = on ? 'Cancel download' : 'Download selected image';
   exportBusy = on;
   updateExportControls();
 }
@@ -1097,10 +1120,6 @@ function exportMask() {
   if ($('exportData').value !== 'masked') return null;
   const level = Number(document.querySelector('input[name="cloudOption"]:checked').value);
   return level >= 1 ? level : 1;
-}
-
-function fmtMB(w, h, n) {
-  return `${((w * h * n * 2) / 1e6).toFixed(0)} MB uncompressed`;
 }
 
 async function startExport() {
@@ -1139,11 +1158,10 @@ async function startExport() {
 function exportStatus(d) {
   if (d.job !== exportJob) return;
   const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]})` : 'raw';
-  const size = `${kind}, ${d.width} × ${d.height} px, ${d.bands} bands, ${fmtMB(d.width, d.height, d.bands)}`;
   if (d.status === 'running') {
     const pct = d.total ? Math.round((100 * d.current) / d.total) : 0;
     setExportProgress(d.total ? d.current / d.total : 0);
-    setExportInfo(`Reading ${d.name} from Earth Engine: ${pct} % (${d.current} / ${d.total} blocks · ${size})`);
+    setExportInfo(`Reading from Earth Engine · ${pct} % · ${d.current} / ${d.total} blocks`);
     exportTimer = setTimeout(() => pollExport(d.job), 500);
     return;
   }
@@ -1151,7 +1169,7 @@ function exportStatus(d) {
   setExportRunning(false);
   setExportProgress(false);
   if (d.status === 'done') {
-    setFinalExportInfo(`Saved ${d.name} (${size}) in ${d.elapsed.toFixed(1)} s`);
+    setFinalExportInfo(`Saved ${d.name} (${kind}, ${d.width} × ${d.height} px) in ${d.elapsed.toFixed(1)} s`);
     const a = document.createElement('a');
     a.href = `/export/${d.job}/file`;
     a.download = d.name;

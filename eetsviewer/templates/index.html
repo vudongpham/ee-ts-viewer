@@ -147,32 +147,44 @@
     </div>
   </div>
 
-  <!-- Download block: shown on the map (top right), see main.js -->
-  <div id="downloadBox" class="download-box" hidden>
-    <div class="db-title">Download selected image</div>
-    <div id="dbScene" class="db-scene">No image selected</div>
-    <div id="dbId" class="db-id"></div>
-    <div id="dbCloud" class="db-cloud"></div>
-    <div id="dbFile" class="db-file"></div>
-    <div class="db-options">
-      <label for="exportData">Data
-        <select id="exportData" disabled title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected) are set to nodata = -9999">
-          <option value="raw" selected>Raw</option>
-          <option value="masked">Cloud masked</option>
-        </select>
-      </label>
-      <label for="exportExtent">Area
-        <select id="exportExtent" disabled title="Part of the scene that is downloaded, at its full native resolution">
-          <option value="view" selected>Map view</option>
-          <option value="scene">Full scene</option>
-        </select>
-      </label>
+  <!-- Download block: an information card about the selected image, shown
+       on the map (top right), see main.js -->
+  <div id="downloadBox" class="download-box empty" hidden>
+    <div class="db-head">
+      <span class="db-kicker">Selected image</span>
+      <span id="dbBadge" class="db-badge"></span>
     </div>
-    <div id="dbSize" class="db-size"></div>
-    <button id="downloadOverlay" disabled
-            title="Save all reflective bands of the selected scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">Download selected image</button>
-    <div id="exProgressWrap" class="progress" aria-hidden="true"><div id="exProgressBar"></div></div>
-    <div id="exportInfo"></div>
+    <div id="dbScene" class="db-scene">No image selected</div>
+    <div class="db-hint">Click an observation in the chart to select its scene.</div>
+    <dl class="db-meta">
+      <dt>Image ID</dt><dd id="dbId" class="db-mono"></dd>
+      <dt>Cloud cover</dt><dd id="dbCloud" class="db-cloud"></dd>
+      <dt>File</dt><dd id="dbFile" class="db-mono db-file"></dd>
+    </dl>
+    <div class="db-section">
+      <div class="db-options">
+        <label for="exportData"><span>Data</span>
+          <select id="exportData" disabled title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected) are set to nodata = -9999">
+            <option value="raw" selected>Raw</option>
+            <option value="masked">Cloud masked</option>
+          </select>
+        </label>
+        <label for="exportExtent"><span>Area</span>
+          <select id="exportExtent" disabled title="Part of the scene that is downloaded, at its full native resolution">
+            <option value="view" selected>Map view</option>
+            <option value="scene">Full scene</option>
+          </select>
+        </label>
+      </div>
+      <div id="dbSize" class="db-size"></div>
+      <button id="downloadOverlay" class="db-button" disabled
+              title="Save all reflective bands of the selected scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">
+        <svg class="db-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="downloadLabel">Download selected image</span>
+      </button>
+      <div id="exProgressWrap" class="progress" aria-hidden="true"><div id="exProgressBar"></div></div>
+      <div id="exportInfo"></div>
+    </div>
   </div>
 </body>
 </html>

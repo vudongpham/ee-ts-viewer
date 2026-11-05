@@ -266,116 +266,6 @@ input.coord.invalid {
   background: rgb(35, 139, 69);
 }
 
-#exportInfo {
-  flex-basis: 100%;
-  font-size: 0.85rem;
-  color: #333;
-}
-
-#exportInfo:empty {
-  display: none;
-}
-
-#exportInfo.error {
-  color: #b00020;
-}
-
-#downloadOverlay.running {
-  color: #fff;
-  background-color: #b00020;
-  border: 1px solid #8a0019;
-}
-
-/* download block on the map (top right) */
-.download-box {
-  width: 270px;
-  max-width: calc(100vw - 80px);
-  box-sizing: border-box;
-  padding: 0.6rem 0.75rem 0.7rem;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 6px;
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
-  font: 13px/1.35 sans-serif;
-  color: #222;
-  cursor: default;
-}
-
-.download-box[hidden] {
-  display: none;
-}
-
-.download-box .db-title {
-  font-weight: bold;
-  font-size: 14px;
-  margin-bottom: 0.35rem;
-}
-
-.download-box .db-scene {
-  font-size: 15px;
-  font-weight: bold;
-  color: #111;
-}
-
-.download-box.empty .db-scene {
-  font-size: 13px;
-  font-weight: normal;
-  color: #666;
-}
-
-.download-box .db-id,
-.download-box .db-file {
-  font-family: monospace;
-  font-size: 12px;
-  word-break: break-all;
-  margin-top: 0.15rem;
-}
-
-.download-box .db-file {
-  color: rgb(35, 110, 55);
-}
-
-.download-box .db-file.error {
-  color: #b00020;
-}
-
-.download-box .db-options {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
-}
-
-.download-box .db-options label {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 50%;
-  font-size: 12px;
-  color: #444;
-}
-
-.download-box select {
-  margin-top: 0.15rem;
-  width: 100%;
-}
-
-.download-box #downloadOverlay {
-  width: 100%;
-  padding: 0.3rem;
-  cursor: pointer;
-}
-
-.download-box #downloadOverlay:disabled {
-  cursor: default;
-}
-
-.download-box #exProgressWrap {
-  margin-top: 0.4rem;
-}
-
-.download-box #exportInfo {
-  margin-top: 0.3rem;
-  font-size: 12px;
-}
-
 /* "Blank" base map: white background instead of tiles */
 #map.blank-map {
   background: #fff;
@@ -390,36 +280,210 @@ input.coord.invalid {
   padding: 0.35rem 0.6rem 0.35rem 0.4rem;
 }
 
-/* cloud cover of the selected scene in the download block */
-.download-box .db-cloud {
-  margin-top: 0.3rem;
-  font-size: 13px;
+/* ---------------------------------------------------------------------
+   Download block: information card about the selected image (map, top right)
+   --------------------------------------------------------------------- */
+.download-box {
+  --db-accent: rgb(33, 113, 181);
+  --db-muted: #6b7280;
+  --db-line: #e5e7eb;
+  width: 290px;
+  max-width: calc(100vw - 80px);
+  box-sizing: border-box;
+  padding: 12px 14px 14px;
+  background: rgba(255, 255, 255, 0.97);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.12);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1f2937;
+  cursor: default;
 }
 
-.download-box .db-cloud:empty {
+.download-box[hidden] { display: none; }
+
+.download-box .db-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.download-box .db-kicker {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--db-muted);
+}
+
+.download-box .db-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #9ca3af;
+  white-space: nowrap;
+}
+
+.download-box .db-badge:empty { display: none; }
+.download-box .db-badge.lnd { background: rgb(197, 27, 138); }
+.download-box .db-badge.sen { background: rgb(35, 139, 69); }
+
+.download-box .db-scene {
+  margin-top: 2px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #111827;
+}
+
+.download-box .db-hint {
   display: none;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--db-muted);
 }
 
-.download-box .db-cloud .db-cloud-value {
-  font-weight: bold;
+/* nothing selected: only the hint, the options are greyed out */
+.download-box.empty .db-scene { font-size: 15px; font-weight: 600; color: #4b5563; }
+.download-box.empty .db-hint { display: block; }
+.download-box.empty .db-meta { display: none; }
+
+.download-box .db-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: #f6f7f9;
+  border-radius: 7px;
 }
 
-.download-box .db-cloud.error {
-  color: #b00020;
+.download-box .db-meta dt {
+  color: var(--db-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.download-box .db-meta dd {
+  margin: 0;
+  min-width: 0;
   font-size: 12px;
 }
 
-/* size estimate of the download */
+.download-box .db-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;   /* only if a part between underscores is too long */
+}
+
+.download-box .db-file { color: rgb(30, 110, 55); }
+.download-box .error { color: #b00020; }
+
+/* cloud cover: value, mask level and a small bar */
+.download-box .db-cloud-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.download-box .db-cloud-value { font-weight: 700; font-size: 13px; }
+.download-box .db-cloud-mask { color: var(--db-muted); font-size: 11px; }
+
+.download-box .db-meter {
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: #e2e5ea;
+  overflow: hidden;
+}
+
+.download-box .db-meter > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7aa7d6, #4b6584);
+  border-radius: 2px;
+}
+
+.download-box .db-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--db-line);
+}
+
+.download-box .db-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.download-box .db-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--db-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.download-box select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #111827;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.download-box select:disabled { background: #f3f4f6; color: #9ca3af; }
+
 .download-box .db-size {
-  margin: -0.15rem 0 0.45rem;
+  margin-top: 8px;
   font-size: 12px;
-  color: #333;
+  color: #374151;
 }
 
-.download-box .db-size:empty {
-  display: none;
+.download-box .db-size:empty { display: none; }
+
+.download-box .db-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: var(--db-accent);
+  color: #fff;
+  font: 600 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
 }
 
-.download-box .db-size.error {
-  color: #b00020;
+.download-box .db-button:hover:not(:disabled) { background: rgb(24, 92, 152); }
+.download-box .db-button:active:not(:disabled) { transform: scale(0.98); }
+.download-box .db-button:disabled { background: #cbd5e1; color: #f8fafc; cursor: default; }
+.download-box .db-button.running { background: #b00020; }
+.download-box .db-button.running:hover { background: #8a0019; }
+
+.download-box .db-icon { width: 16px; height: 16px; flex: none; }
+.download-box .db-button.running .db-icon { display: none; }
+
+.download-box #exProgressWrap { margin-top: 8px; }
+
+.download-box #exportInfo {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #374151;
 }
+
+.download-box #exportInfo:empty { display: none; }
