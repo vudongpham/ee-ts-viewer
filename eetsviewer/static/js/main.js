@@ -28,15 +28,40 @@ const $ = (id) => document.getElementById(id);
 const map = L.map('map', { preferCanvas: true, zoomSnap: 0.5 })
   .setView([52.640564, 13.374481], 11);
 
-L.tileLayer(
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  {
-    maxZoom: 19,
-    keepBuffer: 4,               // keep more tiles around the view -> smoother panning
-    updateWhenZooming: false,
-    attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
+// Base maps, switchable in the top-left corner. The choice is remembered in
+// this browser. The scene overlay (Earth Engine tiles) always stays on top.
+const TILE_OPTIONS = {
+  maxZoom: 19,
+  keepBuffer: 4,               // keep more tiles around the view -> smoother panning
+  updateWhenZooming: false,
+};
+const BASE_MAPS = {
+  Satellite: L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { ...TILE_OPTIONS, attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics' }),
+  OpenStreetMap: L.tileLayer(
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { ...TILE_OPTIONS, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }),
+  Blank: L.layerGroup(),       // no tiles: the map background is white
+};
+const BASE_MAP_KEY = 'eetsviewer.baseMap';
+
+function storedBaseMap() {
+  try {
+    const name = localStorage.getItem(BASE_MAP_KEY);
+    return BASE_MAPS[name] ? name : 'Satellite';
+  } catch (err) {
+    return 'Satellite';
   }
-).addTo(map);
+}
+
+BASE_MAPS[storedBaseMap()].addTo(map);
+map.getContainer().classList.toggle('blank-map', storedBaseMap() === 'Blank');
+L.control.layers(BASE_MAPS, null, { position: 'topleft', collapsed: false }).addTo(map);
+map.on('baselayerchange', (e) => {
+  map.getContainer().classList.toggle('blank-map', e.name === 'Blank');
+  try { localStorage.setItem(BASE_MAP_KEY, e.name); } catch (err) { /* not stored */ }
+});
 
 let clickMarker = null;
 let pulseRing = null;

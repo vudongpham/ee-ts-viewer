@@ -52,6 +52,8 @@ With `-t`, the terminal shows coloured output and a live progress bar; without i
 
 **Location**: click on the map, or type latitude / longitude (pasting `lat,lng` fills both).
 
+**Base map**: *Satellite* (default), *OpenStreetMap* or *Blank* (white), switchable at the top left of the map; the choice is remembered in the browser.
+
 **Sensors**, in two groups (selecting one greys out the other):
 - *Individual Sensors*: Landsat 4, 5, 7, 8, 9 (Collection 2 Level-2 surface reflectance) and Sentinel-2A, 2B, 2C (L2A surface reflectance, harmonized)
 - *Harmonized Sensors*: HLS Landsat 8/9 (HLSL30) and HLS Sentinel-2 (HLSS30)
