@@ -138,7 +138,10 @@
       <div id="progressWrap" aria-hidden="true"><div id="progressBar"></div></div>
       <p id="prog" aria-live="polite"></p>
 
-      <section class="card chart-card" id="chartWrap" hidden><canvas id="myChart"></canvas></section>
+      <section class="card chart-card" id="chartWrap" hidden>
+        <!-- fixed-height box used only by the chart (Chart.js sizes the canvas to it) -->
+        <div class="chart-box"><canvas id="myChart"></canvas></div>
+      </section>
 
       <!-- "waiting": only the hint is shown until the first graph is drawn -->
       <section class="card waiting" id="overlayRow">
