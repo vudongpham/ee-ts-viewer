@@ -8,6 +8,8 @@ setup(
     install_requires=[
         "earthengine-api>=1.0",
         "Flask",
+        "numpy",
+        "rasterio>=1.3",
     ],
     package_data={
         "eetsviewer": [
