@@ -1,6 +1,7 @@
 'use strict';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const Y_MAX = 10000;      // top of the y axis
 const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI']);
 const POLL_MS = 120;          // status poll interval while a job is running
 
@@ -415,7 +416,11 @@ function render() {
 
   const ys = series.map((p) => p.y);
   const minY = ys.length ? Math.min(...ys) : 0;
+  const maxY = ys.length ? Math.max(...ys) : 0;
   chart.options.scales.y.min = minY < 0 ? minY - 300 : 0;
+  // fixed top at 10000 (reflectance / index x 10000), so series are
+  // comparable between locations; only grows if a value lies above it
+  chart.options.scales.y.max = maxY > Y_MAX ? maxY + 300 : Y_MAX;
   chart.update();
 }
 
