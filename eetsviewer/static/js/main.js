@@ -130,6 +130,7 @@ Chart.Interaction.modes.nearestObservation = (chart, e) => {
     if (di === LINE_DS || !chart.isDatasetVisible(di)) return;
     chart.getDatasetMeta(di).data.forEach((el, index) => {
       if (!el || el.skip) return;
+      if (el.y < chart.chartArea.top) return;   // above the top of the axis: not visible
       const d = Math.abs(el.x - pos.x);
       if (d < bestDist) { bestDist = d; best = [{ element: el, datasetIndex: di, index }]; }
       else if (d === bestDist) best.push({ element: el, datasetIndex: di, index });
@@ -454,11 +455,10 @@ function render() {
 
   const ys = series.map((p) => p.y);
   const minY = ys.length ? Math.min(...ys) : 0;
-  const maxY = ys.length ? Math.max(...ys) : 0;
   chart.options.scales.y.min = minY < 0 ? minY - 300 : 0;
   // fixed top at 10000 (reflectance / index x 10000), so series are
-  // comparable between locations; only grows if a value lies above it
-  chart.options.scales.y.max = maxY > Y_MAX ? maxY + 300 : Y_MAX;
+  // comparable between locations; values above it are cut off
+  chart.options.scales.y.max = Y_MAX;
   chart.update();
 }
 
