@@ -1,135 +1,76 @@
 # EE Time-Series Viewer
 
-- Web app for viewing Sentinel-2 and Landsat time series at any location on Earth, with the data coming from [Google Earth Engine](https://earthengine.google.com/)
-- The sister app of [FORCE Live](https://github.com/vudongpham/FORCE-Live), which reads a local FORCE datacube. This app needs no local data
-- Click on the map (or type coordinates) and the pixel time series is extracted on the fly, with cloud masking
+Web app for viewing Landsat, Sentinel-2 and HLS time series at any location on Earth. The data come from Google Earth Engine and are extracted and cloud-masked on the fly; no local data are needed.
 
-### Data
-
-The sensors come in two groups. Pick one with the radio button; the other group is greyed out.
-
-**Individual Sensors**
-
-| Sensor | Earth Engine collection |
-|---|---|
-| Landsat 4 TM | `LANDSAT/LT04/C02/T1_L2` |
-| Landsat 5 TM | `LANDSAT/LT05/C02/T1_L2` |
-| Landsat 7 ETM+ | `LANDSAT/LE07/C02/T1_L2` |
-| Landsat 8 OLI | `LANDSAT/LC08/C02/T1_L2` |
-| Landsat 9 OLI-2 | `LANDSAT/LC09/C02/T1_L2` |
-| Sentinel-2A/B/C MSI | `COPERNICUS/S2_SR_HARMONIZED` (split by `SPACECRAFT_NAME`) |
-| Sentinel-2 cloud score | `GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED` (`cs_cdf`) |
-
-**Harmonized Sensors**
-
-| Sensor | Earth Engine collection |
-|---|---|
-| HLS-2 Landsat 8/9 OLI | `NASA/HLS/HLSL30/v002` (HLSL30, from April 2013) |
-| HLS-2 Sentinel-2A/B/C MSI | `NASA/HLS/HLSS30/v002` (HLSS30, from November 2015) |
-
-HLS (Harmonized Landsat Sentinel-2) surface reflectance is BRDF-normalised and bandpass-adjusted to a common reference, on the 30 m Sentinel-2 MGRS tile grid, so HLSL30 and HLSS30 can be combined into one dense time series. You can select either or both. HLSL30 uses the Landsat 8/9 bands (B2–B7), HLSS30 the Sentinel-2 bands of the table above (the red-edge bands and broad NIR are available for HLSS30 only, and are not bandpass-adjusted). Both are cloud-screened with their `Fmask` band.
-
-Landsat is Collection 2, Level-2 surface reflectance (Tier 1). All reflectances are shown × 10000, the same as FORCE BOA. Landsat DNs are scaled with `DN × 0.0000275 − 0.2`.
-
-| Band | Landsat 4/5/7 | Landsat 8/9 | Sentinel-2 |
-|---|---|---|---|
-| Blue | SR_B1 | SR_B2 | B2 |
-| Green | SR_B2 | SR_B3 | B3 |
-| Red | SR_B3 | SR_B4 | B4 |
-| Red edge 1–3 | – | – | B5, B6, B7 |
-| Broad NIR | – | – | B8 |
-| NIR | SR_B4 | SR_B5 | B8A |
-| SWIR1 | SR_B5 | SR_B6 | B11 |
-| SWIR2 | SR_B7 | SR_B7 | B12 |
-
-The indices NDVI, EVI, NBR, NDMI and NDWI (McFeeters) are × 10000 too, as are the Tasseled Cap Brightness, Greenness and Wetness. These use the reflectance-factor coefficients of [Crist (1985)](https://doi.org/10.1016/0034-4257(85)90102-6) on Blue, Green, Red, NIR, SWIR1 and SWIR2 for every sensor, as FORCE does. They use the NIR row above, so on Sentinel-2 that is B8A, as in FORCE.
-
-**Cloud mask**
-- *None*: only fill / no-data pixels are removed.
-- *Default*
-  - Landsat: `QA_PIXEL` cloud, dilated cloud, cirrus, cloud shadow and snow bits must be 0.
-  - Sentinel-2: `SCL` must be 2, 4, 5, 6 or 7, and Cloud Score+ `cs_cdf` ≥ 0.50.
-  - HLS: `Fmask` cloud, adjacent to cloud/shadow, cloud shadow and snow/ice bits must be 0.
-- *Aggressive*
-  - Landsat: Default, plus no medium/high cloud or cirrus confidence, no high shadow/snow confidence, no saturation (`QA_RADSAT`), no high aerosol (L8/9 `SR_QA_AEROSOL`) and atmospheric opacity ≤ 0.3 (L4–7).
-  - Sentinel-2: `SCL` must be 4, 5 or 6, and `cs_cdf` ≥ 0.65.
-  - HLS: Default, plus no high aerosol (`Fmask` bits 6–7).
-
-If several scenes of the same sensor cover the location on the same day (overlapping Sentinel-2 granules or Landsat rows), only the first clear one is kept.
+## Installation
 
 ### 1. Earth Engine access
-You need a Google Cloud project that is [registered for Earth Engine](https://code.earthengine.google.com/register) (non-commercial use is free). You can log in in either of these two ways:
-
-**a) Your own Google account.** Run this once. It saves the credentials in `~/.config/earthengine`:
+You need a Google Cloud project [registered for Earth Engine](https://code.earthengine.google.com/register) (free for non-commercial use). Log in once with your Google account; the credentials are saved in `~/.config/earthengine`:
 ```
 docker run -it --rm \
   -v ~/.config/earthengine:/root/.config/earthengine \
   vudongpham/eetsviewer earthengine authenticate --auth_mode=notebook
 ```
-(or run `earthengine authenticate` directly if `earthengine-api` is installed on the host).
+Alternatively, use a service account JSON key (see *Options*).
 
-**b) A service account** with the *Earth Engine Resource Viewer* role (or higher) and a JSON key.
-
-### 2. Installation
-Pull the docker image:
+### 2. Pull the image
 ```
 docker pull vudongpham/eetsviewer:latest
 ```
 or install with pip: `pip install git+https://github.com/vudongpham/ee-ts-viewer.git`
 
 ### 3. Run
-With your own account (a):
 ```
 docker run --rm -t \
   -v ~/.config/earthengine:/root/.config/earthengine \
   -p 2742:2742 \
   vudongpham/eetsviewer eetsviewer --project your-gcp-project
 ```
-With a service account (b):
+Then open `http://localhost:2742` in a web browser.
+
+To use another port, change only the host side of `-p` and pass it as `HOST_PORT`, so the start-up message shows the right address:
 ```
-docker run --rm -t \
-  -v /path/to/key.json:/key.json:ro \
-  -p 2742:2742 \
-  vudongpham/eetsviewer eetsviewer --key /key.json
+docker run --rm -t -e HOST_PORT=8080 \
+  -v ~/.config/earthengine:/root/.config/earthengine \
+  -p 8080:2742 \
+  vudongpham/eetsviewer eetsviewer --project your-gcp-project
 ```
 
-Then open `http://localhost:2742` in any web browser.
+### Options
+- `--project`: Google Cloud project used for Earth Engine. Default: `$EE_PROJECT`, or the project of the service account key
+- `--key`: service account JSON key, instead of your own login, e.g. `-v /path/to/key.json:/key.json:ro` and `--key /key.json`. Default: `$EE_SERVICE_ACCOUNT_KEY`
+- `-w` | `--workers`: number of parallel Earth Engine requests. Default: `12`. Lower it if you see "Too many concurrent aggregations"
+- `--high-volume`: use the Earth Engine high-volume endpoint
+- `-p` | `--port`: port the app listens on. Default: `2742`
+- `--host-port`: port shown in the start-up message. Default: `$HOST_PORT`
+- `--log-requests`: also log every HTTP request
+- `--debug`: run Flask in debug mode
 
-<i>Optional arguments:</i>
-- `--project`: Google Cloud project used for Earth Engine. Default: `$EE_PROJECT`, or the `project_id` of the service account key
-- `--key`: service account JSON key. Default: `$EE_SERVICE_ACCOUNT_KEY`
-- `--high-volume`: use the Earth Engine [high-volume endpoint](https://developers.google.com/earth-engine/guides/processing_environments#high-volume_endpoint)
-- `-p` | `--port`: Port the app listens on. Default: `2742`. With Docker you can keep it and change only the host side of `docker run -p`, e.g. `-p 8080:2742`
-- `--host-port`: Port shown as *Open in browser* at start-up when it differs from `--port`, e.g. the host port of `docker run -p 8080:2742`. Default: `$HOST_PORT`, so with Docker add `-e HOST_PORT=8080`
-- `-w` | `--workers`: Number of parallel Earth Engine requests. Default: `12`
-- `--log-requests`: also log every HTTP request (off by default)
-- `--debug`: Run Flask in debug mode
+With `-t`, the terminal shows coloured output and a live progress bar; without it, one line per job. Set `NO_COLOR=1` to turn colours off.
 
-**Terminal output**: after a short start-up banner, the terminal shows one start line and one result line per time series and per download, e.g.
-```
-16:24:50  ▶ Time series  52.50000, 13.40000 · 2023-01-01 → 2024-12-31 · NDVI · Default mask · Landsat 7/8/9 + Sentinel-2A/B (10 requests)
-16:24:53  ✔ Time series  157 clear observations of 238 images · 3.1 s
-16:24:55  ▶ Download     S2SR_SEN2A_20240212.tif · cloud masked (Default) · 3000 × 2600 px · 12 bands (9 blocks)
-16:24:58  ✔ Download     S2SR_SEN2A_20240212.tif ready · 41.2 MB · 3.2 s
-```
-With `docker run -t` (as above) the output is coloured and a live progress bar is shown while a job runs; without `-t` only these lines are written. Set `NO_COLOR=1` to turn colours off.
+## Functions
 
-### Notes
-- The extraction is split into one Earth Engine `getRegion` request per sensor and calendar year. HLSL30 (Landsat 8 + 9 in one collection) is split into 4-month parts and HLSS30 (Sentinel-2A/B/C in one collection) into 2-month parts, so their requests are about as small as those of the individual sensors. Only the parts that overlap the date range are requested. The requests run in parallel, and their results stream into the progress bar. A new click cancels the previous request.
-- The raw band and QA values of each request are cached in memory. Switching the band, the cloud mask or the date range at the same location is therefore almost instant. Years that can still get new acquisitions are refreshed after 1 h.
-- The y axis runs from 0 (or 110 % of the lowest value, if there are negative values) to 110 % of the highest value, and is cut off at −10000 and +10000.
-- **Click an observation in the chart** to show that scene on the map; the selected observation gets a yellow edge. A box on the map and a bar under the chart show the progress, first of the Earth Engine request and then of the tiles being rendered. You can show it as true color, false color (NIR-R-G) or SWIR (SWIR2-NIR-R), and set its opacity. The tiles are rendered by Earth Engine.
-- **Download selected image**, in the block at the top right of the map, saves the overlaid scene (the block shows its sensor, date, Earth Engine image ID and the file name) as a GeoTIFF named `{product}_{sensor}_{YYYYMMDD}.tif`, with the suffix `_masked` (Default) or `_masked_aggressive` for cloud-masked downloads:
-  - *Product*: `C2L2` (Landsat Collection 2 Level-2), `S2SR` (Sentinel-2 L2A surface reflectance, `S2_SR_HARMONIZED`), `HLSL30` or `HLSS30`. *Sensor*: the satellite, `LND04`…`LND09` or `SEN2A`/`SEN2B`/`SEN2C`; for HLS it is read from the scene's source product. Examples: `C2L2_LND08_20240212.tif`, `S2SR_SEN2A_20240212.tif`, `HLSS30_SEN2B_20240212_masked.tif`, `HLSL30_LND09_20240212_masked_aggressive.tif`.
-  - *Area*: *Map view* (the part of the scene visible on the map) or *Full scene*. Both are at the scene's native resolution and pixel grid (10 m for Sentinel-2, 30 m for Landsat and HLS) and in its native projection (UTM). At most 12000 × 12000 pixels; a full Sentinel-2 tile is 10980 × 10980.
-  - All reflective bands of the product, with band names (e.g. `B8A (NIR)`): Landsat 4–7 SR_B1–5, 7; Landsat 8/9 SR_B1–7; Sentinel-2 B1–B8A, B9, B11, B12; HLSL30 B1–B7, B9; HLSS30 B1–B12 incl. B8A. Thermal bands and indices are not included.
-  - *Data*: *Raw* (the scene as it is) or *Cloud masked*: pixels removed by the selected *Cloud mask* (Default or Aggressive; Default when None is selected) are set to nodata. The rules are the same as for the time series, applied per pixel (Landsat `QA_PIXEL` etc., Sentinel-2 `SCL` + Cloud Score+, HLS `Fmask`), so the masked scene matches the observations in the chart.
-  - int16, reflectance × 10000 (the same scale as the chart), nodata = −9999 (the area outside the scene, and cloudy pixels in a cloud-masked download).
-  - Everything happens on the fly: the server reads the scene from Earth Engine in blocks of 1024 × 1024 pixels (`computePixels`, 6 in parallel) and writes them straight into a compressed (deflate) GeoTIFF. The file is deleted from the server once it is downloaded. A progress bar shows the blocks read; the button turns into *Cancel download* meanwhile.
-- The *Line* dropdown sets how the line through the observations is drawn: linear interpolation, monotone spline, harmonic regression (1/2/3 harmonics + trend, after [Zhu et al. 2015](https://doi.org/10.1016/j.rse.2015.02.009)), no line, or one of three **adaptive** smoothers. It is computed in the browser, so switching is instant. The adaptive smoothers take their parameters from the clear observations themselves, starting from their median spacing Δ (in days):
-  - *Moving average*: tricube-weighted mean over a window that holds 5 observations, between Δ and 4Δ days (half width; at least 4, at most 30–120 days).
-  - *Savitzky–Golay*: tricube-weighted local polynomial over a window that holds 7 observations (1.5Δ to 6Δ days). The degree adapts as well: quadratic with ≥ 6 observations and ≥ 2 on each side, linear with ≥ 3 and ≥ 1 on each side, otherwise the mean, so the curve does not overshoot at the ends of the series or at the edge of a gap.
-  - *RBF ensemble* (after [Schwieder et al. 2016](https://doi.org/10.1016/j.jag.2016.06.019)): Gaussian kernels with σ = 2Δ, 3.5Δ and 5Δ (6–90 days), each truncated at ±3σ, combined per day with weights by local data density (sum of kernel weights / σ): equal weights where the data are dense, narrow kernels fading out where they are sparse. A kernel needs at least half an observation's weight nearby to contribute.
-  - All three break the line in gaps longer than 8Δ (at least 60 days) instead of bridging them. The legend shows the parameters used, e.g. `RBF ensemble (σ = 14/25/35 d)`.
-- *Download CSV* includes the Earth Engine image ID of every observation.
-- Earth Engine limits concurrent requests per project. If you see "Too many concurrent aggregations", lower `--workers` (failed requests are retried with back-off first).
+**Location**: click on the map, or type latitude / longitude (pasting `lat,lng` fills both).
+
+**Sensors**, in two groups (selecting one greys out the other):
+- *Individual Sensors*: Landsat 4, 5, 7, 8, 9 (Collection 2 Level-2 surface reflectance) and Sentinel-2A, 2B, 2C (L2A surface reflectance, harmonized)
+- *Harmonized Sensors*: HLS Landsat 8/9 (HLSL30) and HLS Sentinel-2 (HLSS30)
+
+**Bands**: Blue, Green, Red, Red edge 1–3 and Broad NIR (Sentinel-2 only), NIR, SWIR1, SWIR2, and the indices NDVI, EVI, NBR, NDMI, NDWI and Tasseled Cap Brightness, Greenness and Wetness. All values are × 10000.
+
+**Cloud mask**: *None*, *Default* or *Aggressive*, using the quality bands of each product (Landsat QA, Sentinel-2 scene classification + Cloud Score+, HLS Fmask).
+
+**Chart**
+- Landsat points in magenta, Sentinel-2 in green, in both sensor groups
+- *Line*: linear interpolation, spline, moving average, Savitzky–Golay, RBF ensemble, harmonic regression (basic / advanced / full) or no line. The moving average, Savitzky–Golay and RBF adapt to the density of the clear observations and do not bridge long gaps. Switching is instant.
+- The y axis fits the data, between −10000 and 10000
+- *Copy dates array*, *Copy reflectance array* and *Download CSV* (with the image ID of every observation)
+- *Stop* cancels a running extraction; a new request also cancels the previous one
+
+**Scene overlay**: click an observation in the chart to show that scene on the map (true color, false color or SWIR, adjustable opacity). The selected observation gets a yellow edge.
+
+**Download selected image**: the block at the top right of the map saves the overlaid scene as a GeoTIFF.
+- *Data*: *Raw*, or *Cloud masked* with the selected cloud mask (cloudy pixels set to nodata)
+- *Area*: *Map view* or *Full scene*
+- All reflective bands, int16, reflectance × 10000, nodata −9999, native projection and resolution
+- File name `{product}_{sensor}_{YYYYMMDD}.tif`, with `_masked` / `_masked_aggressive` for cloud-masked downloads, e.g. `S2SR_SEN2A_20240212.tif`, `HLSL30_LND09_20240212_masked.tif`
