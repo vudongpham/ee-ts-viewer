@@ -102,3 +102,13 @@ def test_tasseled_cap():
     hls = {b: v / 10000 for b, v in raw.items()}
     assert S.compute_value("HLSL30", hls, "TCG") == S.compute_value("SEN2A", raw, "TCG")
     assert S.compute_value("SEN2A", {"NIR": 3000}, "TCW") is None
+
+
+def test_hlss30():
+    raw = {"RED": 0.05, "NIR": 0.30, "RE1": 0.12, "FMASK": 0}
+    assert S.compute_value("HLSS30", raw, "RE1") == 1200
+    assert S.compute_value("HLSS30", raw, "NDVI") == S.compute_value("HLSL30", raw, "NDVI")
+    assert "RE1" not in S.SENSORS["HLSL30"]["bands"]        # no red edge on OLI
+    assert not S.is_clear("HLSS30", {"FMASK": 1 << 1}, S.MASK_DEFAULT)
+    assert S.SENSORS["HLSS30"]["bands"]["NIR"] == "B8A"
+    assert S.sensor_years("HLSS30", date(2014, 1, 1), date(2016, 6, 1)) == [2015, 2016]

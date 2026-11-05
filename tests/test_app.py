@@ -65,4 +65,4 @@ def test_groups_cannot_be_mixed():
                                        "endDate": "2020-02-01", "sensorList": ["LND08", "HLSL30"]})
     assert r.status_code == 400
     page = client.get("/").get_data(as_text=True)
-    assert "Individual Sensors" in page and "Harmonized Sensors" in page and 'value="HLSL30"' in page
+    assert "Individual Sensors" in page and "Harmonized Sensors" in page and 'value="HLSL30"' in page and 'value="HLSS30"' in page

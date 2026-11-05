@@ -25,8 +25,9 @@ The sensors come in two groups. Pick one with the radio button; the other group 
 | Sensor | Earth Engine collection |
 |---|---|
 | HLS-2 Landsat 8/9 OLI | `NASA/HLS/HLSL30/v002` (HLSL30, from April 2013) |
+| HLS-2 Sentinel-2A/B/C MSI | `NASA/HLS/HLSS30/v002` (HLSS30, from November 2015) |
 
-HLS (Harmonized Landsat Sentinel-2) surface reflectance is BRDF-normalised and bandpass-adjusted to Sentinel-2, on the Sentinel-2 MGRS tile grid. Its bands are the same as Landsat 8/9 (B2–B7) and it is cloud-screened with its `Fmask` band.
+HLS (Harmonized Landsat Sentinel-2) surface reflectance is BRDF-normalised and bandpass-adjusted to a common reference, on the 30 m Sentinel-2 MGRS tile grid, so HLSL30 and HLSS30 can be combined into one dense time series. You can select either or both. HLSL30 uses the Landsat 8/9 bands (B2–B7), HLSS30 the Sentinel-2 bands of the table above (the red-edge bands and broad NIR are available for HLSS30 only, and are not bandpass-adjusted). Both are cloud-screened with their `Fmask` band.
 
 Landsat is Collection 2, Level-2 surface reflectance (Tier 1). All reflectances are shown × 10000, the same as FORCE BOA. Landsat DNs are scaled with `DN × 0.0000275 − 0.2`.
 

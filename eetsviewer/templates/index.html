@@ -91,7 +91,7 @@
 
         <span><strong>Cloud mask:</strong>
           <label title="Only fill / no-data pixels are removed"><input type="radio" name="cloudOption" value="0"> None</label>
-          <label title="Landsat: QA_PIXEL cloud, dilated cloud, cirrus, shadow, snow. Sentinel-2: SCL + Cloud Score+ cs_cdf ≥ 0.50. HLS: Fmask cloud, adjacent cloud, shadow, snow"><input type="radio" name="cloudOption" value="1" checked> Default</label>
+          <label title="Landsat: QA_PIXEL cloud, dilated cloud, cirrus, shadow, snow. Sentinel-2: SCL + Cloud Score+ cs_cdf ≥ 0.50. HLSL30/HLSS30: Fmask cloud, adjacent cloud, shadow, snow"><input type="radio" name="cloudOption" value="1" checked> Default</label>
           <label title="Default + cloud/cirrus confidence, saturation, haze (Landsat); strict SCL + Cloud Score+ cs_cdf ≥ 0.65 (Sentinel-2); + high aerosol (HLS)"><input type="radio" name="cloudOption" value="2"> Aggressive</label>
         </span>
 

@@ -40,11 +40,19 @@ S2_BANDS = {
 }
 S2_QA = {"SCL": "SCL"}  # cs_cdf (Cloud Score+) is linked in separately
 
-# HLS-2 Landsat 8/9 OLI (HLSL30 v2.0): surface reflectance as floats
-# (0..1), harmonised with Sentinel-2 (BRDF-normalised, bandpass-adjusted)
-HLS_BANDS = OLI_BANDS
+# HLS-2 (Harmonized Landsat Sentinel-2, v2.0): surface reflectance as
+# floats (0..1), BRDF-normalised and bandpass-adjusted to a common
+# reference, on the 30 m Sentinel-2 MGRS grid.
+#   HLSL30: Landsat 8/9 OLI, HLSS30: Sentinel-2A/B/C MSI
+HLSL30_BANDS = OLI_BANDS
+HLSS30_BANDS = {
+    "BLUE": "B2", "GREEN": "B3", "RED": "B4",
+    "RE1": "B5", "RE2": "B6", "RE3": "B7",
+    "BNIR": "B8", "NIR": "B8A", "SWIR1": "B11", "SWIR2": "B12",
+}
 HLS_QA = {"FMASK": "Fmask"}
 HLSL30_COLLECTION = "NASA/HLS/HLSL30/v002"
+HLSS30_COLLECTION = "NASA/HLS/HLSS30/v002"
 
 S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
 CLOUD_SCORE_PLUS = "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
@@ -67,8 +75,11 @@ SENSORS = {
     "SEN2C": dict(group="individual", label="Sentinel-2C", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2C",
                   bands=S2_BANDS, qa=S2_QA, scale=10, start=date(2024, 9, 1), end=None),
     "HLSL30": dict(group="harmonized", label="HLS Landsat 8/9 OLI (HLSL30)", family="HLS",
-                   collection=HLSL30_COLLECTION, bands=HLS_BANDS, qa=HLS_QA, scale=30,
+                   collection=HLSL30_COLLECTION, bands=HLSL30_BANDS, qa=HLS_QA, scale=30,
                    start=date(2013, 4, 1), end=None),
+    "HLSS30": dict(group="harmonized", label="HLS Sentinel-2 MSI (HLSS30)", family="HLS",
+                   collection=HLSS30_COLLECTION, bands=HLSS30_BANDS, qa=HLS_QA, scale=30,
+                   start=date(2015, 11, 1), end=None),
 }
 
 SENSOR_GROUPS = {
