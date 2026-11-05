@@ -134,7 +134,7 @@ function removeOverlay() {
   overlayPoint = null;
   if (overlay) { map.removeLayer(overlay); overlay = null; }
   $('clearOverlay').disabled = true;
-  if (!exportJob) $('downloadOverlay').disabled = true;
+  updateExportControls();
   setOverlayInfo('');
   setOverlayProgress(null);
   chart.update('none');
@@ -144,7 +144,7 @@ async function showOverlay(p) {
   const req = ++overlayRequest;
   overlayPoint = p;
   $('clearOverlay').disabled = false;
-  $('downloadOverlay').disabled = false;
+  updateExportControls();
   const what = `${p.s} ${fmtDate(p.x)}`;
   setOverlayInfo(`Loading ${what}…`);
   setOverlayProgress(`Requesting ${what} from Earth Engine…`, null);
@@ -554,6 +554,7 @@ function resetChart(startDate, endDate, band) {
 // draw the collected points (called once, when the extraction has ended)
 function showResults() {
   showChart(true);
+  $('overlayRow').classList.remove('waiting');   // overlay / download controls
   render();
 }
 
@@ -852,7 +853,9 @@ applySensorMode();
 // progress and saves the finished file.
 // ---------------------------------------------------------------------------
 
-let exportJob = null;
+let exportJob = null;      // id of the running export on the server
+let exportBusy = false;    // a download is being prepared or running
+let exportToken = 0;       // bumped by Cancel: ignores a request still being prepared
 let exportTimer = null;
 
 function setExportInfo(text, isError) {
@@ -870,13 +873,22 @@ function setExportProgress(fraction) {
   $('exProgressBar').style.transform = `scaleX(${scale})`;
 }
 
+// Download controls: usable only while a scene is overlaid. While a
+// download runs, the button cancels it and the options are locked.
+function updateExportControls() {
+  const running = exportBusy;
+  const scene = !!overlayPoint;
+  $('downloadOverlay').disabled = !running && !scene;
+  $('exportData').disabled = running || !scene;
+  $('exportExtent').disabled = running || !scene;
+}
+
 function setExportRunning(on) {
   const b = $('downloadOverlay');
   b.classList.toggle('running', on);
   b.textContent = on ? 'Cancel download' : 'Download selected image';
-  b.disabled = !on && !overlayPoint;
-  $('exportExtent').disabled = on;
-  $('exportData').disabled = on;
+  exportBusy = on;
+  updateExportControls();
 }
 
 function mapBounds() {
@@ -904,6 +916,7 @@ async function startExport() {
   const p = overlayPoint;
   if (!p) return;
   const mask = exportMask();
+  const token = ++exportToken;
   setExportRunning(true);
   setExportProgress(null);
   setExportInfo(`Preparing ${p.s} ${fmtDate(p.x)}…`);
@@ -917,6 +930,10 @@ async function startExport() {
     d = await r.json();
   } catch (err) {
     d = { status: 'error', error: err.message };
+  }
+  if (token !== exportToken) {           // cancelled while it was being prepared
+    if (d.job) fetch(`/export/${d.job}/cancel`, { method: 'POST' }).catch(() => {});
+    return;
   }
   if (!d.job) {
     setExportRunning(false);
@@ -971,12 +988,14 @@ function pollExport(jobId) {
 }
 
 $('downloadOverlay').addEventListener('click', async () => {
-  if (!exportJob) { startExport(); return; }
+  if (!exportBusy) { startExport(); return; }
   const jobId = exportJob;
+  exportToken++;
   exportJob = null;
   clearTimeout(exportTimer);
   setExportRunning(false);
   setExportProgress(false);
   setExportInfo('Download cancelled');
+  if (!jobId) return;                     // still preparing: startExport cancels it
   try { await fetch(`/export/${jobId}/cancel`, { method: 'POST' }); } catch (err) { /* ignore */ }
 });

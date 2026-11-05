@@ -169,6 +169,11 @@ input.coord.invalid {
   font-size: 0.95rem;
 }
 
+/* before the first graph only the hint line is shown */
+#overlayRow.waiting > :not(.hint) {
+  display: none !important;
+}
+
 #overlayRow .hint {
   flex-basis: 100%;
   color: #555;
