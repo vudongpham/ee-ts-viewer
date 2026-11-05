@@ -150,3 +150,15 @@ def test_sensor_periods():
     # nothing in the future
     future = date.today().replace(year=date.today().year + 1)
     assert all(p0 <= date.today() for p0, _ in S.sensor_periods("HLSS30", date.today(), future))
+
+
+def test_export_names():
+    assert S.export_name("LND05", "19950703") == "C2L2_LND05_19950703.tif"
+    assert S.export_name("SEN2C", "20250101") == "S2SR_SEN2C_20250101.tif"
+    assert S.export_name("HLSL30", "20240212", "LC09_L1TP_193023_20240212_20240212_02_T1") == \
+        "HLSL30_LND09_20240212.tif"
+    assert S.export_name("HLSS30", "20240212", "S2A_MSIL1C_20240212T101019_N0510") == \
+        "HLSS30_SEN2A_20240212.tif"
+    # unknown source: family code
+    assert S.export_name("HLSL30", "20240212", "") == "HLSL30_LND_20240212.tif"
+    assert S.export_name("HLSS30", "20240212", None) == "HLSS30_SEN2_20240212.tif"

@@ -76,26 +76,28 @@ S2_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
 CLOUD_SCORE_PLUS = "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
 
 SENSORS = {
-    "LND04": dict(group="individual", label="Landsat 4", family="LND", collection="LANDSAT/LT04/C02/T1_L2",
+    "LND04": dict(group="individual", label="Landsat 4", family="LND", product="C2L2", collection="LANDSAT/LT04/C02/T1_L2",
                   bands=TM_BANDS, qa=TM_QA, export=TM_EXPORT, scale=30, start=date(1982, 8, 1), end=date(1993, 12, 31)),
-    "LND05": dict(group="individual", label="Landsat 5", family="LND", collection="LANDSAT/LT05/C02/T1_L2",
+    "LND05": dict(group="individual", label="Landsat 5", family="LND", product="C2L2", collection="LANDSAT/LT05/C02/T1_L2",
                   bands=TM_BANDS, qa=TM_QA, export=TM_EXPORT, scale=30, start=date(1984, 3, 1), end=date(2012, 12, 31)),
-    "LND07": dict(group="individual", label="Landsat 7", family="LND", collection="LANDSAT/LE07/C02/T1_L2",
+    "LND07": dict(group="individual", label="Landsat 7", family="LND", product="C2L2", collection="LANDSAT/LE07/C02/T1_L2",
                   bands=TM_BANDS, qa=TM_QA, export=TM_EXPORT, scale=30, start=date(1999, 5, 1), end=None),
-    "LND08": dict(group="individual", label="Landsat 8", family="LND", collection="LANDSAT/LC08/C02/T1_L2",
+    "LND08": dict(group="individual", label="Landsat 8", family="LND", product="C2L2", collection="LANDSAT/LC08/C02/T1_L2",
                   bands=OLI_BANDS, qa=OLI_QA, export=OLI_EXPORT, scale=30, start=date(2013, 3, 1), end=None),
-    "LND09": dict(group="individual", label="Landsat 9", family="LND", collection="LANDSAT/LC09/C02/T1_L2",
+    "LND09": dict(group="individual", label="Landsat 9", family="LND", product="C2L2", collection="LANDSAT/LC09/C02/T1_L2",
                   bands=OLI_BANDS, qa=OLI_QA, export=OLI_EXPORT, scale=30, start=date(2021, 10, 1), end=None),
-    "SEN2A": dict(group="individual", label="Sentinel-2A", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2A",
+    "SEN2A": dict(group="individual", label="Sentinel-2A", family="SEN", product="S2SR", collection=S2_COLLECTION, spacecraft="Sentinel-2A",
                   bands=S2_BANDS, qa=S2_QA, export=S2_EXPORT, scale=10, start=date(2015, 6, 1), end=None),
-    "SEN2B": dict(group="individual", label="Sentinel-2B", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2B",
+    "SEN2B": dict(group="individual", label="Sentinel-2B", family="SEN", product="S2SR", collection=S2_COLLECTION, spacecraft="Sentinel-2B",
                   bands=S2_BANDS, qa=S2_QA, export=S2_EXPORT, scale=10, start=date(2017, 3, 1), end=None),
-    "SEN2C": dict(group="individual", label="Sentinel-2C", family="SEN", collection=S2_COLLECTION, spacecraft="Sentinel-2C",
+    "SEN2C": dict(group="individual", label="Sentinel-2C", family="SEN", product="S2SR", collection=S2_COLLECTION, spacecraft="Sentinel-2C",
                   bands=S2_BANDS, qa=S2_QA, export=S2_EXPORT, scale=10, start=date(2024, 9, 1), end=None),
     "HLSL30": dict(group="harmonized", label="HLS Landsat 8/9 OLI (HLSL30)", family="HLS",
+                   product="HLSL30", spacecraft_property="LANDSAT_PRODUCT_ID",
                    collection=HLSL30_COLLECTION, bands=HLSL30_BANDS, qa=HLS_QA, export=HLSL30_EXPORT, scale=30,
                    start=date(2013, 4, 1), end=None, parts=3),
     "HLSS30": dict(group="harmonized", label="HLS Sentinel-2 MSI (HLSS30)", family="HLS",
+                   product="HLSS30", spacecraft_property="PRODUCT_URI",
                    collection=HLSS30_COLLECTION, bands=HLSS30_BANDS, qa=HLS_QA, export=HLSS30_EXPORT, scale=30,
                    start=date(2015, 11, 1), end=None, parts=6),
 }
@@ -109,6 +111,35 @@ SENSOR_GROUPS = {
 # -> rho * 10000 = DN * 0.275 - 2000
 LANDSAT_GAIN = 0.275
 LANDSAT_OFFSET = -2000.0
+
+
+# first characters of the source product id -> sensor code, for the HLS
+# products that combine several satellites
+#   HLSL30 LANDSAT_PRODUCT_ID: "LC08_L1TP_193023_..."  HLSS30 PRODUCT_URI: "S2B_MSIL1C_..."
+SPACECRAFT_PREFIXES = {
+    "LC08": "LND08", "LC09": "LND09",
+    "S2A": "SEN2A", "S2B": "SEN2B", "S2C": "SEN2C", "S2D": "SEN2D",
+}
+
+
+def spacecraft(sensor, source_id=None):
+    """Sensor code of one scene (e.g. LND09, SEN2B).
+
+    The individual sensors are one satellite each. For HLS the satellite
+    is read from the id of the source product; if it is unknown, the
+    family code (LND / SEN2) is returned.
+    """
+    if SENSORS[sensor]["family"] != "HLS":
+        return sensor
+    for prefix, code in SPACECRAFT_PREFIXES.items():
+        if (source_id or "").upper().startswith(prefix):
+            return code
+    return "LND" if sensor == "HLSL30" else "SEN2"
+
+
+def export_name(sensor, date, source_id=None):
+    """File name of an exported scene: {product}_{sensor}_{YYYYMMDD}.tif"""
+    return f"{SENSORS[sensor]['product']}_{spacecraft(sensor, source_id)}_{date}.tif"
 
 
 def sensor_years(sensor, start, end):

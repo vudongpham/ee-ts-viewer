@@ -37,7 +37,7 @@ def fake_fetch(plan, expression, col, row, w, h):
 def test_run_export_writes_geotiff(monkeypatch):
     monkeypatch.setattr(ex, "export_image", lambda sensor, image_id: None)
     plan = make_plan()
-    assert plan.name == "SEN2A_20240212.tif"
+    assert plan.name == "S2SR_SEN2A_20240212.tif"
     job = ex.ExportJob(plan)
     ex.run_export(job, fetch=fake_fetch)
     assert job.status == "done", job.error
@@ -69,10 +69,10 @@ def test_export_routes(monkeypatch):
         if d["status"] != "running":
             break
         time.sleep(0.05)
-    assert d["status"] == "done" and d["name"] == "LND08_20240212.tif" and d["bands"] == 7
+    assert d["status"] == "done" and d["name"] == "C2L2_LND08_20240212.tif" and d["bands"] == 7
     r = client.get(f"/export/{d['job']}/file")
     assert r.status_code == 200
-    assert "LND08_20240212.tif" in r.headers["Content-Disposition"]
+    assert "C2L2_LND08_20240212.tif" in r.headers["Content-Disposition"]
     assert r.data[:4] in (b"II*\x00", b"MM\x00*", b"II+\x00")
     r.close()
     # the file is removed once it was sent
@@ -94,6 +94,10 @@ class FakeEE:
     def __init__(self, info):
         self.info = info
 
+    class Algorithms:
+        @staticmethod
+        def If(cond, a, b): return None
+
     def Image(self, asset):
         class Img:
             def select(self, b): return self
@@ -101,6 +105,8 @@ class FakeEE:
             def geometry(self): return self
             def bounds(self, e): return None
             def get(self, k): return None
+            def propertyNames(self): return self
+            def contains(self, k): return None
         return Img()
 
     def Dictionary(self, d):
@@ -134,7 +140,7 @@ def test_plan_export_view_and_scene(monkeypatch):
     monkeypatch.setattr(ex, "ee", FakeEE(s2_info()))
     sid = "20240212T101021_20240212T101019_T32UQD"
     view = ex.plan_export("SEN2A", sid, "view", [12.60, 52.60, 12.70, 52.65])
-    assert view.name == "SEN2A_20240212.tif"
+    assert view.name == "S2SR_SEN2A_20240212.tif"
     assert view.transform.a == 10 and (view.transform.c - 699960) % 10 == 0
     # ~0.1 deg x 0.05 deg at 52.6 N is ~6.8 km x 5.6 km at 10 m (a bit more:
     # the box is rotated in UTM)
@@ -171,3 +177,11 @@ def test_plan_export_errors(monkeypatch):
         assert "too large" in str(exc)
     else:
         raise AssertionError("expected too large")
+
+
+def test_hls_names_use_the_satellite(monkeypatch):
+    info = s2_info()
+    info["source"] = "S2B_MSIL1C_20240212T101019_N0510_R022_T32UQD_20240212T121006.SAFE"
+    monkeypatch.setattr(ex, "ee", FakeEE(info))
+    plan = ex.plan_export("HLSS30", "T32UQD_20240212T101019", "scene")
+    assert plan.name == "HLSS30_SEN2B_20240212.tif"

@@ -26,7 +26,7 @@ from rasterio.transform import Affine
 from rasterio.warp import transform as warp_transform, transform_bounds
 
 from .earthengine import IMAGE_ID, RETRY_PATTERNS
-from .sensors import LANDSAT_GAIN, LANDSAT_OFFSET, SENSORS
+from .sensors import LANDSAT_GAIN, LANDSAT_OFFSET, SENSORS, export_name
 
 NODATA = -9999
 BLOCK = 1024                     # block edge in pixels (12 bands int16 = 25 MB < 48 MB limit)
@@ -44,7 +44,7 @@ class ExportError(Exception):
 # ---------------------------------------------------------------------------
 
 class Plan:
-    def __init__(self, sensor, image_id, crs, transform, width, height, date):
+    def __init__(self, sensor, image_id, crs, transform, width, height, date, source_id=None):
         s = SENSORS[sensor]
         self.sensor = sensor
         self.image_id = image_id
@@ -55,7 +55,7 @@ class Plan:
         self.date = date                  # YYYYMMDD
         self.bands = [b for b, _ in s["export"]]
         self.descriptions = [f"{b} ({name})" for b, name in s["export"]]
-        self.name = f"{sensor}_{date}.tif"
+        self.name = export_name(sensor, date, source_id)   # {product}_{sensor}_{YYYYMMDD}.tif
 
     @property
     def blocks(self):
@@ -140,11 +140,15 @@ def plan_export(sensor, image_id, extent, view_bounds=None):
     s = SENSORS[sensor]
     img = ee.Image(f"{s['collection']}/{image_id}")
     grid_band = s["bands"]["BLUE"]  # finest native resolution of the sensor
-    info = _retry(lambda: ee.Dictionary({
+    fields = {
         "proj": img.select(grid_band).projection(),
         "footprint": img.geometry(),
         "time": img.get("system:time_start"),
-    }).getInfo())
+    }
+    prop = s.get("spacecraft_property")  # HLS: which satellite took the scene
+    if prop:
+        fields["source"] = ee.Algorithms.If(img.propertyNames().contains(prop), img.get(prop), "")
+    info = _retry(lambda: ee.Dictionary(fields).getInfo())
 
     proj = info["proj"]
     t = proj.get("transform")
@@ -179,7 +183,7 @@ def plan_export(sensor, image_id, extent, view_bounds=None):
                           f"at most {MAX_SIDE} x {MAX_SIDE}): zoom in")
 
     date = datetime.fromtimestamp(info["time"] / 1000, tz=timezone.utc).strftime("%Y%m%d")
-    return Plan(sensor, image_id, crs, transform, width, height, date)
+    return Plan(sensor, image_id, crs, transform, width, height, date, info.get("source"))
 
 
 # ---------------------------------------------------------------------------
