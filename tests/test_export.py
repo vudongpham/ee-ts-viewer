@@ -297,3 +297,73 @@ def test_masked_plan_name(monkeypatch):
     assert ex.plan_export("SEN2A", sid, "scene", mask=1).name == "S2SR_SEN2A_20240212_masked.tif"
     assert ex.plan_export("SEN2A", sid, "scene", mask=2).name == "S2SR_SEN2A_20240212_masked_aggressive.tif"
     assert ex.plan_export("SEN2A", sid, "scene").name == "S2SR_SEN2A_20240212.tif"
+
+
+# ---------------------------------------------------------------------------
+# Cloud cover: masked pixels / valid pixels, on NumPy stand-ins for ee
+# ---------------------------------------------------------------------------
+
+class NpMaskImage:
+    """Minimal ee.Image stand-in with a value array and a mask."""
+
+    def __init__(self, v, mask=None):
+        self.v = np.asarray(v, dtype=float)
+        self.m = np.ones(self.v.shape, bool) if mask is None else np.asarray(mask, bool)
+
+    def And(self, o): return NpMaskImage((self.v > 0) & (o.v > 0), self.m & o.m)
+    def rename(self, name): return self
+    def updateMask(self, o): return NpMaskImage(self.v, self.m & (o.v > 0) & o.m)
+    def select(self, b): return self
+    def projection(self): return None
+    def geometry(self): return None
+
+    def reduceRegion(self, **kw):
+        v = self.v[self.m]
+        info = {"clear_mean": float(v.mean()) if v.size else None, "clear_count": int(v.size)}
+
+        class R:
+            def getInfo(self): return info
+        return R()
+
+
+class CloudEE:
+    class Reducer:
+        @staticmethod
+        def mean():
+            class M:
+                def combine(self, *a, **k): return None
+            return M()
+
+        @staticmethod
+        def count():
+            return None
+
+    def Image(self, asset):
+        return NpMaskImage([0])
+
+
+def test_cloud_cover_is_masked_over_valid(monkeypatch):
+    # 10 x 10 scene: 20 fill pixels, 80 valid of which 20 masked -> 25 %
+    valid = np.ones((10, 10)); valid[:2] = 0
+    clear = np.ones((10, 10)); clear[2:4] = 0
+    monkeypatch.setattr(ex, "ee", CloudEE())
+    monkeypatch.setattr(ex, "clear_mask",
+                        lambda sensor, scene, iid, level: NpMaskImage(valid if level == 0 else clear))
+    ex._cloud_cache.clear()
+    r = ex.cloud_cover("SEN2A", "20240212T101021_20240212T101019_T32UQD", 1)
+    assert r == {"cloud": 25.0, "valid_pixels": 80, "scale": ex.CLOUD_SCALE}
+    # cached: a second call does not compute again
+    monkeypatch.setattr(ex, "clear_mask", None)
+    assert ex.cloud_cover("SEN2A", "20240212T101021_20240212T101019_T32UQD", 1)["cloud"] == 25.0
+
+
+def test_cloud_cover_route(monkeypatch):
+    monkeypatch.setattr(ex, "cloud_cover", lambda s, i, level: {"cloud": 12.5, "valid_pixels": 10, "scale": 100,
+                                                               "level": level})
+    client = appmod.app.test_client()
+    r = client.get("/export/cloud?sensor=LND08&id=LC08_193023_20240212&mask=2").get_json()
+    assert r["cloud"] == 12.5 and r["level"] == 2
+    monkeypatch.undo()
+    assert client.get("/export/cloud?sensor=LND08&id=../x&mask=1").status_code == 400
+    assert client.get("/export/cloud?sensor=LND08&id=LC08_193023_20240212&mask=0").status_code == 400
+    assert client.get("/export/cloud?sensor=NOPE&id=x&mask=1").status_code == 400

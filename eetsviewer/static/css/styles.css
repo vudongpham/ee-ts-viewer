@@ -389,3 +389,22 @@ input.coord.invalid {
 .leaflet-control-layers-expanded {
   padding: 0.35rem 0.6rem 0.35rem 0.4rem;
 }
+
+/* cloud cover of the selected scene in the download block */
+.download-box .db-cloud {
+  margin-top: 0.3rem;
+  font-size: 13px;
+}
+
+.download-box .db-cloud:empty {
+  display: none;
+}
+
+.download-box .db-cloud .db-cloud-value {
+  font-weight: bold;
+}
+
+.download-box .db-cloud.error {
+  color: #b00020;
+  font-size: 12px;
+}
