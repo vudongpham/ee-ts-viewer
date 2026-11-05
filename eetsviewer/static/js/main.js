@@ -439,11 +439,11 @@ const LINE_MODES = {
   // observation and never overshoots between them
   spline: { label: 'Spline (monotone cubic)', cubic: 'monotone', data: (pts) => pts.slice() },
   movavg: adaptiveMode(
-    (pts) => Smoothing.movingAverage(pts, { k: 5 }),
-    (p) => `Moving average (adaptive: 5 obs., ${days(p.hMin)}–${days(p.hMax)})`),
+    (pts) => Smoothing.movingAverage(pts),
+    (p) => `Moving average (adaptive: window ±${days(p.hMin)}–${days(p.hMax)})`),
   savgol: adaptiveMode(
-    (pts) => Smoothing.savitzkyGolay(pts, { k: 7, degree: 2 }),
-    (p) => `Savitzky–Golay (adaptive: 7 obs., ${days(p.hMin)}–${days(p.hMax)})`),
+    (pts) => Smoothing.savitzkyGolay(pts),
+    (p) => `Savitzky–Golay (adaptive, robust: window ±${days(p.hMin)}–${days(p.hMax)})`),
   rbf: adaptiveMode(
     (pts) => Smoothing.rbf(pts),
     (p) => `RBF ensemble (σ = ${p.sigmas.join('/')} d)`),
