@@ -134,6 +134,7 @@ function removeOverlay() {
   overlayPoint = null;
   if (overlay) { map.removeLayer(overlay); overlay = null; }
   $('clearOverlay').disabled = true;
+  if (!exportJob) $('downloadOverlay').disabled = true;
   setOverlayInfo('');
   setOverlayProgress(null);
   chart.update('none');
@@ -143,6 +144,7 @@ async function showOverlay(p) {
   const req = ++overlayRequest;
   overlayPoint = p;
   $('clearOverlay').disabled = false;
+  $('downloadOverlay').disabled = false;
   const what = `${p.s} ${fmtDate(p.x)}`;
   setOverlayInfo(`Loading ${what}…`);
   setOverlayProgress(`Requesting ${what} from Earth Engine…`, null);
@@ -843,3 +845,125 @@ document.querySelectorAll('input[name="sensorMode"]').forEach((el) => {
   el.addEventListener('change', applySensorMode);
 });
 applySensorMode();
+
+// ---------------------------------------------------------------------------
+// Download of the overlaid scene as GeoTIFF: the server reads it from Earth
+// Engine block by block and writes the file; the browser only polls the
+// progress and saves the finished file.
+// ---------------------------------------------------------------------------
+
+let exportJob = null;
+let exportTimer = null;
+
+function setExportInfo(text, isError) {
+  const el = $('exportInfo');
+  el.textContent = text;
+  el.classList.toggle('error', !!isError);
+}
+
+// fraction: 0..1, null = not known yet (sliding bar), false = hidden
+function setExportProgress(fraction) {
+  const wrap = $('exProgressWrap');
+  wrap.classList.toggle('active', fraction !== false);
+  wrap.classList.toggle('indeterminate', fraction === null);
+  const scale = typeof fraction === 'number' ? fraction : (fraction === null ? 1 : 0);
+  $('exProgressBar').style.transform = `scaleX(${scale})`;
+}
+
+function setExportRunning(on) {
+  const b = $('downloadOverlay');
+  b.classList.toggle('running', on);
+  b.textContent = on ? 'Cancel download' : 'Download current overlayed image';
+  b.disabled = !on && !overlayPoint;
+  $('exportExtent').disabled = on;
+}
+
+function mapBounds() {
+  const b = map.getBounds();
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  return [clamp(b.getWest(), -180, 180), clamp(b.getSouth(), -90, 90),
+          clamp(b.getEast(), -180, 180), clamp(b.getNorth(), -90, 90)];
+}
+
+function fmtMB(w, h, n) {
+  return `${((w * h * n * 2) / 1e6).toFixed(0)} MB uncompressed`;
+}
+
+async function startExport() {
+  const p = overlayPoint;
+  if (!p) return;
+  setExportRunning(true);
+  setExportProgress(null);
+  setExportInfo(`Preparing ${p.s} ${fmtDate(p.x)}…`);
+  let d;
+  try {
+    const r = await fetch('/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sensor: p.s, id: p.id, extent: $('exportExtent').value, bounds: mapBounds() }),
+    });
+    d = await r.json();
+  } catch (err) {
+    d = { status: 'error', error: err.message };
+  }
+  if (!d.job) {
+    setExportRunning(false);
+    setExportProgress(false);
+    setExportInfo(`Download failed: ${d.error || 'unknown error'}`, true);
+    return;
+  }
+  exportJob = d.job;
+  exportStatus(d);
+}
+
+function exportStatus(d) {
+  if (d.job !== exportJob) return;
+  const size = `${d.width} × ${d.height} px, ${d.bands} bands, ${fmtMB(d.width, d.height, d.bands)}`;
+  if (d.status === 'running') {
+    const pct = d.total ? Math.round((100 * d.current) / d.total) : 0;
+    setExportProgress(d.total ? d.current / d.total : 0);
+    setExportInfo(`Reading ${d.name} from Earth Engine: ${pct} % (${d.current} / ${d.total} blocks · ${size})`);
+    exportTimer = setTimeout(() => pollExport(d.job), 500);
+    return;
+  }
+  exportJob = null;
+  setExportRunning(false);
+  setExportProgress(false);
+  if (d.status === 'done') {
+    setExportInfo(`Saved ${d.name} (${size}) in ${d.elapsed.toFixed(1)} s`);
+    const a = document.createElement('a');
+    a.href = `/export/${d.job}/file`;
+    a.download = d.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } else if (d.status === 'error') {
+    setExportInfo(`Download failed: ${d.error}`, true);
+  } else {
+    setExportInfo('Download cancelled');
+  }
+}
+
+function pollExport(jobId) {
+  fetch(`/export/${jobId}`)
+    .then((r) => r.json())
+    .then(exportStatus)
+    .catch((err) => {
+      if (jobId !== exportJob) return;
+      exportJob = null;
+      setExportRunning(false);
+      setExportProgress(false);
+      setExportInfo(`Lost connection to the server: ${err.message}`, true);
+    });
+}
+
+$('downloadOverlay').addEventListener('click', async () => {
+  if (!exportJob) { startExport(); return; }
+  const jobId = exportJob;
+  exportJob = null;
+  clearTimeout(exportTimer);
+  setExportRunning(false);
+  setExportProgress(false);
+  setExportInfo('Download cancelled');
+  try { await fetch(`/export/${jobId}/cancel`, { method: 'POST' }); } catch (err) { /* ignore */ }
+});

@@ -191,7 +191,7 @@ input.coord.invalid {
 }
 
 /* overlay progress: bar under the overlay controls ... */
-#ovProgressWrap {
+#ovProgressWrap, #exProgressWrap {
   flex-basis: 100%;
   height: 4px;
   background: #e2e2e2;
@@ -201,11 +201,11 @@ input.coord.invalid {
   transition: opacity 0.3s ease;
 }
 
-#ovProgressWrap.active {
+#ovProgressWrap.active, #exProgressWrap.active {
   opacity: 1;
 }
 
-#ovProgressBar {
+#ovProgressBar, #exProgressBar {
   height: 100%;
   width: 100%;
   background: rgb(33, 113, 181);
@@ -215,7 +215,8 @@ input.coord.invalid {
 }
 
 /* no percentage known yet (Earth Engine request): sliding bar */
-#ovProgressWrap.indeterminate #ovProgressBar {
+#ovProgressWrap.indeterminate #ovProgressBar,
+#exProgressWrap.indeterminate #exProgressBar {
   width: 30%;
   transition: none;
   animation: slide 1.1s ease-in-out infinite;
@@ -254,4 +255,28 @@ input.coord.invalid {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+#exProgressBar {
+  background: rgb(35, 139, 69);
+}
+
+#exportInfo {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+  color: #333;
+}
+
+#exportInfo:empty {
+  display: none;
+}
+
+#exportInfo.error {
+  color: #b00020;
+}
+
+#downloadOverlay.running {
+  color: #fff;
+  background-color: #b00020;
+  border: 1px solid #8a0019;
 }

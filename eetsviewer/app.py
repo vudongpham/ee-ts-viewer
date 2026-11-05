@@ -7,9 +7,10 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 from . import earthengine as eeapi
+from . import export as exporter
 from .sensors import ALL_BANDS, SENSOR_GROUPS, SENSORS, compute_value, is_clear, sensor_periods
 
 app = Flask(
@@ -258,6 +259,60 @@ def tiles():
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"error": f"Earth Engine error: {exc}"}), 502
+
+
+@app.route("/export", methods=["POST"])
+def export_start():
+    """Start exporting the overlaid scene to a GeoTIFF."""
+    data = request.get_json(force=True)
+    try:
+        plan = exporter.plan_export(data.get("sensor"), data.get("id"),
+                                    data.get("extent", "view"), data.get("bounds"))
+    except exporter.ExportError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"status": "error", "error": f"Earth Engine error: {exc}"}), 502
+    return jsonify(exporter.start_export(plan).snapshot())
+
+
+@app.route("/export/<job_id>")
+def export_status(job_id):
+    job = exporter.get_export(job_id)
+    if job is None:
+        return jsonify({"status": "error", "error": "Unknown export"}), 404
+    return jsonify(job.snapshot())
+
+
+@app.route("/export/<job_id>/cancel", methods=["POST"])
+def export_cancel(job_id):
+    job = exporter.get_export(job_id)
+    if job:
+        job.cancel()
+        exporter.forget_export(job_id)
+    return jsonify({"status": "cancelled"})
+
+
+@app.route("/export/<job_id>/file")
+def export_file(job_id):
+    """The finished GeoTIFF; it is deleted from the server once it is sent."""
+    job = exporter.get_export(job_id)
+    if job is None or job.status != "done" or not os.path.exists(job.path):
+        return jsonify({"status": "error", "error": "File not available"}), 404
+    path, name = job.path, job.plan.name
+
+    def stream():
+        try:
+            with open(path, "rb") as f:
+                while chunk := f.read(1 << 20):
+                    yield chunk
+        finally:  # runs when the download ends or the connection closes
+            exporter.forget_export(job_id)
+
+    return Response(stream(), mimetype="image/tiff", headers={
+        "Content-Disposition": f'attachment; filename="{name}"',
+        "Content-Length": str(os.path.getsize(path)),
+        "Cache-Control": "no-store",
+    })
 
 
 def main():
