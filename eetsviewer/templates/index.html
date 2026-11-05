@@ -19,6 +19,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script defer src="{{ url_for('static', filename='js/smoothing.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/grid.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
 </head>
 
@@ -27,43 +28,54 @@
     <div id="map"></div>
 
     <div id="info-panel">
-      <h2>Click on the map or enter coordinates to select location</h2>
+      <header class="panel-head">
+        <h1>EE Time-Series Viewer</h1>
+        <p>Click on the map or enter coordinates to select a location.</p>
+      </header>
 
-      <form class="row" id="coordForm" autocomplete="off">
-        <label><strong>Latitude:</strong>
-          <input id="lat" class="coord" type="text" inputmode="decimal" placeholder="e.g. 52.11354"
-                 title="Latitude in decimal degrees (-90 to 90). You can also paste &quot;lat,lng&quot; here.">
-        </label>
-        <label><strong>Longitude:</strong>
-          <input id="lng" class="coord" type="text" inputmode="decimal" placeholder="e.g. 8.27282"
-                 title="Longitude in decimal degrees (-180 to 180)">
-        </label>
-        <button id="gotoButton" type="submit" title="Pin this location on the map">Go to</button>
-      </form>
+      <section class="card">
+        <h2 class="card-title">Location &amp; period</h2>
+        <form id="coordForm" class="field-grid loc-grid" autocomplete="off">
+          <label class="field"><span>Latitude</span>
+            <input id="lat" class="coord" type="text" inputmode="decimal" placeholder="e.g. 52.11354"
+                   title="Latitude in decimal degrees (-90 to 90). You can also paste &quot;lat,lng&quot; here.">
+          </label>
+          <label class="field"><span>Longitude</span>
+            <input id="lng" class="coord" type="text" inputmode="decimal" placeholder="e.g. 8.27282"
+                   title="Longitude in decimal degrees (-180 to 180)">
+          </label>
+          <button id="gotoButton" class="btn btn-secondary" type="submit" title="Pin this location on the map">Go to</button>
+        </form>
+        <div class="field-grid two">
+          <label class="field"><span>Start date</span><input id="startDate" type="date" value="2024-01-01"></label>
+          <label class="field"><span>End date</span><input id="endDate" type="date" value="2025-12-31"></label>
+        </div>
+      </section>
 
-      <div class="row">
-        <label><strong>Start date:</strong> <input id="startDate" type="date" value="2024-01-01"></label>
-        <label><strong>End date:</strong> <input id="endDate" type="date" value="2025-12-31"></label>
-      </div>
-
-      <div id="sGroups">
-        {%- for group, title in groups.items() %}
-        <fieldset class="sensorGroup" data-group="{{ group }}"{% if not loop.first %} disabled{% endif %}>
-          <legend>
-            <label><input type="radio" name="sensorMode" value="{{ group }}"{% if loop.first %} checked{% endif %}>
-              <strong>{{ title }}</strong></label>
-          </legend>
-          {%- for code, s in sensors.items() if s.group == group %}
-          <label><input type="checkbox" name="selectedSensors" value="{{ code }}" checked>{{ s.label }}</label>
-          {%- if code == 'LND09' %}<br>{% endif %}
+      <section class="card">
+        <h2 class="card-title">Sensors</h2>
+        <div id="sGroups">
+          {%- for group, title in groups.items() %}
+          <fieldset class="sensorGroup" data-group="{{ group }}"{% if not loop.first %} disabled{% endif %}>
+            <legend>
+              <label class="group-radio"><input type="radio" name="sensorMode" value="{{ group }}"{% if loop.first %} checked{% endif %}>
+                {{ title }}</label>
+            </legend>
+            <div class="chips">
+              {%- for code, s in sensors.items() if s.group == group %}
+              <label class="chip"><input type="checkbox" name="selectedSensors" value="{{ code }}" checked>{{ s.label }}</label>
+              {%- endfor %}
+            </div>
+          </fieldset>
           {%- endfor %}
-        </fieldset>
-        {%- endfor %}
-      </div>
+        </div>
+      </section>
 
-      <div class="row">
-        <label for="Bands"><strong>Band:</strong>
-          <select name="Bands" id="Bands">
+      <section class="card">
+        <h2 class="card-title">Data &amp; display</h2>
+        <div class="field-grid three">
+          <label class="field" for="Bands"><span>Band</span>
+            <select name="Bands" id="Bands">
             <optgroup label="Reflectance">
               <option value="BLUE">Blue</option>
               <option value="GREEN">Green</option>
@@ -89,16 +101,16 @@
               <option value="TCW">TC Wetness</option>
             </optgroup>
           </select>
-        </label>
-
-        <span><strong>Cloud mask:</strong>
-          <label title="Only fill / no-data pixels are removed"><input type="radio" name="cloudOption" value="0"> None</label>
-          <label title="Landsat: QA_PIXEL cloud, dilated cloud, cirrus, shadow, snow. Sentinel-2: SCL + Cloud Score+ cs_cdf ≥ 0.50. HLSL30/HLSS30: Fmask cloud, adjacent cloud, shadow, snow"><input type="radio" name="cloudOption" value="1" checked> Default</label>
-          <label title="Default + cloud/cirrus confidence, saturation, haze (Landsat); strict SCL + Cloud Score+ cs_cdf ≥ 0.65 (Sentinel-2); + high aerosol (HLS)"><input type="radio" name="cloudOption" value="2"> Aggressive</label>
-        </span>
-
-        <label for="lineMode"><strong>Line:</strong>
-          <select id="lineMode" title="How the line through the observations is drawn (applied instantly, no re-extraction)">
+          </label>
+          <div class="field"><span>Cloud mask</span>
+            <div class="segmented" role="radiogroup" aria-label="Cloud mask">
+              <label title="Only fill / no-data pixels are removed"><input type="radio" name="cloudOption" value="0"><span>None</span></label>
+              <label title="Landsat: QA_PIXEL cloud, dilated cloud, cirrus, shadow, snow. Sentinel-2: SCL + Cloud Score+ cs_cdf ≥ 0.50. HLSL30/HLSS30: Fmask cloud, adjacent cloud, shadow, snow"><input type="radio" name="cloudOption" value="1" checked><span>Default</span></label>
+              <label title="Default + cloud/cirrus confidence, saturation, haze (Landsat); strict SCL + Cloud Score+ cs_cdf ≥ 0.65 (Sentinel-2); + high aerosol (HLS)"><input type="radio" name="cloudOption" value="2"><span>Aggressive</span></label>
+            </div>
+          </div>
+          <label class="field" for="lineMode"><span>Line</span>
+            <select id="lineMode" title="How the line through the observations is drawn (applied instantly, no re-extraction)">
             <option value="linear" selected>Linear interpolation</option>
             <option value="spline">Spline (monotone cubic)</option>
             <option value="movavg">Moving average (adaptive)</option>
@@ -109,68 +121,84 @@
             <option value="harmFull">Harmonic full (3 harmonics + trend)</option>
             <option value="none">No line</option>
           </select>
-        </label>
-      </div>
+          </label>
+        </div>
+      </section>
 
-      <div class="row">
-        <button id="stopButton" disabled title="Stop the running data extraction">Stop</button>
-      </div>
-
-      <div class="row">
-        <button id="getData">View time series</button>
-        <button class="copybutton" id="copyXbutton" disabled>Copy dates array</button>
-        <button class="copybutton" id="copyYbutton" disabled>Copy reflectance array</button>
-        <button class="copybutton" id="csvButton" disabled>Download CSV</button>
+      <div class="actions">
+        <button id="getData" class="btn btn-primary">View time series</button>
+        <button id="stopButton" class="btn btn-stop" disabled title="Stop the running data extraction">Stop</button>
+        <div class="export-tools">
+          <button class="btn btn-ghost copybutton" id="copyXbutton" disabled title="Copy the dates (days since 1970-01-01) as an array">Copy dates</button>
+          <button class="btn btn-ghost copybutton" id="copyYbutton" disabled title="Copy the values as an array">Copy values</button>
+          <button class="btn btn-ghost copybutton" id="csvButton" disabled>Download CSV</button>
+        </div>
       </div>
 
       <div id="progressWrap" aria-hidden="true"><div id="progressBar"></div></div>
       <p id="prog" aria-live="polite"></p>
 
-      <div id="chartWrap" hidden><canvas id="myChart"></canvas></div>
+      <section class="card chart-card" id="chartWrap" hidden><canvas id="myChart"></canvas></section>
 
       <!-- "waiting": only the hint is shown until the first graph is drawn -->
-      <div class="row waiting" id="overlayRow">
-        <span class="hint">Click an observation in the chart to show that scene on the map.</span>
-        <label for="visMode"><strong>Overlay:</strong>
-          <select id="visMode">
-            <option value="true" selected>True color (R-G-B)</option>
-            <option value="false">False color (NIR-R-G)</option>
-            <option value="swir">SWIR (SWIR2-NIR-R)</option>
-          </select>
-        </label>
-        <label><strong>Opacity:</strong> <input id="opacity" type="range" min="0" max="1" step="0.05" value="1"></label>
-        <button id="clearOverlay" disabled>Remove overlay</button>
-        <span id="overlayInfo"></span>
+      <section class="card waiting" id="overlayRow">
+        <h2 class="card-title">Scene overlay</h2>
+        <p class="hint">Click an observation in the chart to show that scene on the map.</p>
+        <div class="ov-controls">
+          <label class="field" for="visMode"><span>Display</span>
+            <select id="visMode">
+              <option value="true" selected>True color (R-G-B)</option>
+              <option value="false">False color (NIR-R-G)</option>
+              <option value="swir">SWIR (SWIR2-NIR-R)</option>
+            </select>
+          </label>
+          <label class="field"><span>Opacity</span><input id="opacity" type="range" min="0" max="1" step="0.05" value="1"></label>
+          <button id="clearOverlay" class="btn btn-secondary" disabled>Remove overlay</button>
+        </div>
+        <div id="overlayInfo"></div>
         <div id="ovProgressWrap" class="progress" aria-hidden="true"><div id="ovProgressBar"></div></div>
-      </div>
+      </section>
     </div>
   </div>
 
-  <!-- Download block: shown on the map (top right), see main.js -->
-  <div id="downloadBox" class="download-box" hidden>
-    <div class="db-title">Download selected image</div>
-    <div id="dbScene" class="db-scene">No image selected</div>
-    <div id="dbId" class="db-id"></div>
-    <div id="dbCloud" class="db-cloud"></div>
-    <div id="dbFile" class="db-file"></div>
-    <div class="db-options">
-      <label for="exportData">Data
-        <select id="exportData" disabled title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected) are set to nodata = -9999">
-          <option value="raw" selected>Raw</option>
-          <option value="masked">Cloud masked</option>
-        </select>
-      </label>
-      <label for="exportExtent">Area
-        <select id="exportExtent" disabled title="Part of the scene that is downloaded, at its full native resolution">
-          <option value="view" selected>Map view</option>
-          <option value="scene">Full scene</option>
-        </select>
-      </label>
+  <!-- Download block: an information card about the selected image, shown
+       on the map (top right), see main.js -->
+  <div id="downloadBox" class="download-box empty" hidden>
+    <div class="db-head">
+      <span class="db-kicker">Selected image</span>
+      <span id="dbBadge" class="db-badge"></span>
     </div>
-    <button id="downloadOverlay" disabled
-            title="Save all reflective bands of the selected scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">Download selected image</button>
-    <div id="exProgressWrap" class="progress" aria-hidden="true"><div id="exProgressBar"></div></div>
-    <div id="exportInfo"></div>
+    <div id="dbScene" class="db-scene">No image selected</div>
+    <div class="db-hint">Click an observation in the chart to select its scene.</div>
+    <dl class="db-meta">
+      <dt>Image ID</dt><dd id="dbId" class="db-mono"></dd>
+      <dt>Cloud cover</dt><dd id="dbCloud" class="db-cloud"></dd>
+      <dt>File</dt><dd id="dbFile" class="db-mono db-file"></dd>
+    </dl>
+    <div class="db-section">
+      <div class="db-options">
+        <label for="exportData"><span>Data</span>
+          <select id="exportData" disabled title="Cloud masked: pixels removed by the selected Cloud mask (Default or Aggressive; Default when None is selected) are set to nodata = -9999">
+            <option value="raw" selected>Raw</option>
+            <option value="masked">Cloud masked</option>
+          </select>
+        </label>
+        <label for="exportExtent"><span>Area</span>
+          <select id="exportExtent" disabled title="Part of the scene that is downloaded, at its full native resolution">
+            <option value="view" selected>Map view</option>
+            <option value="scene">Full scene</option>
+          </select>
+        </label>
+      </div>
+      <div id="dbSize" class="db-size"></div>
+      <button id="downloadOverlay" class="db-button" disabled
+              title="Save all reflective bands of the selected scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">
+        <svg class="db-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="downloadLabel">Download selected image</span>
+      </button>
+      <div id="exProgressWrap" class="progress" aria-hidden="true"><div id="exProgressBar"></div></div>
+      <div id="exportInfo"></div>
+    </div>
   </div>
 </body>
 </html>

@@ -200,7 +200,8 @@ _meta_lock = threading.Lock()
 
 
 def scene_meta(sensor, image_id):
-    """Acquisition time and (HLS) source product id of one scene, cached."""
+    """Acquisition time, (HLS) source product id, footprint (GeoJSON,
+    lon/lat) and native projection of one scene, cached."""
     key = (sensor, image_id)
     with _meta_lock:
         hit = _meta_cache.get(key)
@@ -208,7 +209,8 @@ def scene_meta(sensor, image_id):
         return hit
     s = SENSORS[sensor]
     img = ee.Image(f"{s['collection']}/{image_id}")
-    fields = {"time": img.get("system:time_start")}
+    fields = {"time": img.get("system:time_start"), "footprint": img.geometry(),
+              "proj": img.select(s["bands"]["BLUE"]).projection()}
     prop = s.get("spacecraft_property")
     if prop:
         fields["source"] = ee.Algorithms.If(img.propertyNames().contains(prop), img.get(prop), "")
@@ -272,6 +274,26 @@ def cloud_cover(sensor, image_id, level):
         while len(_cloud_cache) > 1000:
             _cloud_cache.popitem(last=False)
     return result
+
+
+def scene_info(sensor, image_id):
+    """What the browser needs to estimate the size of a download: the
+    footprint's bounding box (lon/lat), the native resolution, the number
+    of bands and the size limit."""
+    _check(sensor, image_id, None)
+    meta = scene_meta(sensor, image_id)
+    lons, lats = _coords(meta["footprint"]["coordinates"])
+    s = SENSORS[sensor]
+    proj = meta.get("proj") or {}
+    return {
+        "bbox": [min(lons), min(lats), max(lons), max(lats)],
+        "footprint": meta["footprint"],
+        "crs": proj.get("crs"),               # e.g. EPSG:32632
+        "transform": proj.get("transform"),   # native grid [a, b, c, d, e, f]
+        "resolution": s["scale"],
+        "bands": len(s["export"]),
+        "max_side": MAX_SIDE,
+    }
 
 
 def file_name(sensor, image_id, mask=None):

@@ -862,6 +862,29 @@ let exportBusy = false;    // a download is being prepared or running
 let exportToken = 0;       // bumped by Cancel: ignores a request still being prepared
 let exportTimer = null;
 
+// A final message (saved / cancelled / failed) stays until the next action
+// anywhere on the page: a click, a key press or zooming with the wheel.
+let clearInfoOnNextAction = null;
+
+function setFinalExportInfo(text, isError) {
+  setExportInfo(text, isError);
+  // registered after this event loop turn, so the click that ended the
+  // download (e.g. Cancel) does not clear its own message
+  setTimeout(() => {
+    if (clearInfoOnNextAction) return;
+    clearInfoOnNextAction = () => {
+      for (const ev of ['pointerdown', 'keydown', 'wheel']) {
+        document.removeEventListener(ev, clearInfoOnNextAction, true);
+      }
+      clearInfoOnNextAction = null;
+      if (!exportBusy) setExportInfo('');
+    };
+    for (const ev of ['pointerdown', 'keydown', 'wheel']) {
+      document.addEventListener(ev, clearInfoOnNextAction, true);
+    }
+  }, 0);
+}
+
 function setExportInfo(text, isError) {
   const el = $('exportInfo');
   el.textContent = text;
@@ -896,6 +919,23 @@ const SENSOR_LABELS = Object.fromEntries(
 let shownScene = null;     // scene + options the file name was fetched for
 let nameRequest = 0;
 
+// long ids and file names wrap after an underscore, not inside a word
+function setBreakable(el, text) {
+  el.textContent = '';
+  String(text).split(/(?<=_)/).forEach((part, i) => {
+    if (i) el.appendChild(document.createElement('wbr'));
+    el.appendChild(document.createTextNode(part));
+  });
+}
+
+// sensor chip in the card header, in the colour of its points in the chart
+function setBadge(sensor) {
+  const b = $('dbBadge');
+  b.textContent = sensor ? (SENSOR_LABELS[sensor] || sensor) : '';
+  b.classList.toggle('lnd', !!sensor && (sensor.startsWith('LND') || sensor === 'HLSL30'));
+  b.classList.toggle('sen', !!sensor && (sensor.startsWith('SEN') || sensor === 'HLSS30'));
+}
+
 // name of the selected image in the download block: sensor and date, the
 // Earth Engine image id and the name of the file the download will get
 function updateSelectedInfo() {
@@ -905,30 +945,37 @@ function updateSelectedInfo() {
   if (!p) {
     shownScene = null;
     nameRequest++;
-    $('dbScene').textContent = 'No image selected: click an observation in the chart';
+    $('dbScene').textContent = 'No image selected';
+    setBadge(null);
     $('dbId').textContent = '';
     setFileName('');
     updateCloudCover();
+    sceneRequest++;
+    setSize('');
     return;
   }
-  $('dbScene').textContent = `${SENSOR_LABELS[p.s] || p.s} · ${fmtDate(p.x)}`;
-  $('dbId').textContent = p.id;
+  $('dbScene').textContent = new Date(p.x).toLocaleDateString('en-GB',
+    { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  setBadge(p.s);
+  setBreakable($('dbId'), p.id);
+  $('dbId').title = p.id;
   updateCloudCover();
+  loadSceneInfo(p);
   const mask = exportMask();
   const key = `${p.s}/${p.id}/${mask}`;
   if (key === shownScene) return;
   shownScene = key;
   const req = ++nameRequest;
-  setFileName('File: …');
+  setFileName('…');
   const params = new URLSearchParams({ sensor: p.s, id: p.id, mask: mask == null ? 'raw' : mask });
   fetch(`/export/name?${params}`)
     .then((r) => r.json())
     .then((d) => {
       if (req !== nameRequest) return;
-      if (d.name) setFileName(`File: ${d.name}`);
-      else setFileName(`File name unavailable: ${d.error || 'unknown error'}`, true);
+      if (d.name) setFileName(d.name);
+      else setFileName(`unavailable: ${d.error || 'unknown error'}`, true);
     })
-    .catch((err) => { if (req === nameRequest) setFileName(`File name unavailable: ${err.message}`, true); });
+    .catch((err) => { if (req === nameRequest) setFileName(`unavailable: ${err.message}`, true); });
 }
 
 // Cloud cover of the selected scene: pixels removed by the Cloud mask of
@@ -941,11 +988,13 @@ const cloudResults = new Map();   // scene/level -> result, so switching back is
 
 function showCloud(el, label, d) {
   if (d.cloud != null) {
-    el.innerHTML = `${label}: <span class="db-cloud-value">${d.cloud.toFixed(1)} %</span>`;
+    el.innerHTML = `<div class="db-cloud-row"><span class="db-cloud-value">${d.cloud.toFixed(1)} %</span>` +
+      `<span class="db-cloud-mask">${label}</span></div>` +
+      `<div class="db-meter"><span style="width:${Math.min(100, Math.max(0, d.cloud))}%"></span></div>`;
     el.title = `${d.valid_pixels.toLocaleString('en')} valid pixels on a ${d.scale} m grid; ` +
                'masked pixels (clouds, shadows, snow, ...) / valid pixels of the whole scene';
   } else {
-    el.textContent = `${label}: unavailable (${d.error || 'no valid pixels'})`;
+    el.textContent = `unavailable (${d.error || 'no valid pixels'})`;
     el.classList.add('error');
   }
 }
@@ -965,11 +1014,11 @@ function updateCloudCover() {
   if (key === shownCloud) return;
   shownCloud = key;
   const req = ++cloudRequest;
-  const label = `Cloud cover (${MASK_LABELS[level]} mask)`;
+  const label = `${MASK_LABELS[level]} mask`;
   el.classList.remove('error');
   el.title = '';
   if (cloudResults.has(key)) { showCloud(el, label, cloudResults.get(key)); return; }
-  el.innerHTML = `${label}: <span class="db-cloud-value">computing…</span>`;
+  el.innerHTML = `<div class="db-cloud-row"><span class="db-cloud-mask">computing…</span></div>`;
   const params = new URLSearchParams({ sensor: p.s, id: p.id, mask: level });
   fetch(`/export/cloud?${params}`)
     .then((r) => r.json())
@@ -980,21 +1029,78 @@ function updateCloudCover() {
     })
     .catch((err) => {
       if (req !== cloudRequest) return;
-      el.textContent = `${label}: unavailable (${err.message})`;
+      el.textContent = `unavailable (${err.message})`;
       el.classList.add('error');
     });
 }
 
+// Size of the download: the pixel grid the server would write for the
+// selected Area, computed in the browser (static/js/grid.js) from the
+// scene's footprint and projection, so it follows panning / zooming
+// instantly. The size in MB is uncompressed (the file is compressed).
+const sceneInfos = new Map();     // sensor/id -> {bbox, resolution, bands, max_side}
+let sceneRequest = 0;
+
+function loadSceneInfo(p) {
+  const key = `${p.s}/${p.id}`;
+  if (sceneInfos.has(key)) { updateSizeEstimate(); return; }
+  const req = ++sceneRequest;
+  setSize('Size: …');
+  fetch(`/export/scene?${new URLSearchParams({ sensor: p.s, id: p.id })}`)
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.bbox) sceneInfos.set(key, d);
+      if (req !== sceneRequest) return;
+      if (d.bbox) updateSizeEstimate();
+      else setSize(`Size unavailable: ${d.error || 'unknown error'}`, true);
+    })
+    .catch((err) => { if (req === sceneRequest) setSize(`Size unavailable: ${err.message}`, true); });
+}
+
+function setSize(text, isError) {
+  const el = $('dbSize');
+  el.textContent = text;
+  el.classList.toggle('error', !!isError);
+}
+
+function updateSizeEstimate() {
+  const p = overlayPoint;
+  if (!p) { setSize(''); return; }
+  const info = sceneInfos.get(`${p.s}/${p.id}`);
+  if (!info) return;
+  const fullScene = $('exportExtent').value === 'scene';
+  let view = null;
+  if (!fullScene) {
+    const v = map.getBounds();
+    view = [Math.max(-180, v.getWest()), Math.max(-90, v.getSouth()),
+            Math.min(180, v.getEast()), Math.min(90, v.getNorth())];
+  }
+  const what = fullScene ? 'Full scene' : 'Map view';
+  const r = Grid.estimate(info, view);
+  if (r.empty) { setSize(`${what}: the view does not cover this scene`, true); return; }
+  const fmt = (v) => v.toLocaleString('en');
+  const mb = r.bytes / 1e6;
+  const size = mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.max(1, Math.round(mb))} MB`;
+  if (r.tooLarge) {
+    setSize(`${what}: ${fmt(r.width)} × ${fmt(r.height)} px, larger than the ` +
+            `${fmt(info.max_side)} px limit${fullScene ? '' : ': zoom in'}`, true);
+  } else {
+    setSize(`${what}: ${fmt(r.width)} × ${fmt(r.height)} px · ${info.bands} bands · ${size}`);
+  }
+}
+
+map.on('moveend', () => { if (overlayPoint) updateSizeEstimate(); });
+
 function setFileName(text, isError) {
   const el = $('dbFile');
-  el.textContent = text;
+  setBreakable(el, text);
   el.classList.toggle('error', !!isError);
 }
 
 function setExportRunning(on) {
   const b = $('downloadOverlay');
   b.classList.toggle('running', on);
-  b.textContent = on ? 'Cancel download' : 'Download selected image';
+  $('downloadLabel').textContent = on ? 'Cancel download' : 'Download selected image';
   exportBusy = on;
   updateExportControls();
 }
@@ -1014,10 +1120,6 @@ function exportMask() {
   if ($('exportData').value !== 'masked') return null;
   const level = Number(document.querySelector('input[name="cloudOption"]:checked').value);
   return level >= 1 ? level : 1;
-}
-
-function fmtMB(w, h, n) {
-  return `${((w * h * n * 2) / 1e6).toFixed(0)} MB uncompressed`;
 }
 
 async function startExport() {
@@ -1046,7 +1148,7 @@ async function startExport() {
   if (!d.job) {
     setExportRunning(false);
     setExportProgress(false);
-    setExportInfo(`Download failed: ${d.error || 'unknown error'}`, true);
+    setFinalExportInfo(`Download failed: ${d.error || 'unknown error'}`, true);
     return;
   }
   exportJob = d.job;
@@ -1056,11 +1158,10 @@ async function startExport() {
 function exportStatus(d) {
   if (d.job !== exportJob) return;
   const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]})` : 'raw';
-  const size = `${kind}, ${d.width} × ${d.height} px, ${d.bands} bands, ${fmtMB(d.width, d.height, d.bands)}`;
   if (d.status === 'running') {
     const pct = d.total ? Math.round((100 * d.current) / d.total) : 0;
     setExportProgress(d.total ? d.current / d.total : 0);
-    setExportInfo(`Reading ${d.name} from Earth Engine: ${pct} % (${d.current} / ${d.total} blocks · ${size})`);
+    setExportInfo(`Reading from Earth Engine · ${pct} % · ${d.current} / ${d.total} blocks`);
     exportTimer = setTimeout(() => pollExport(d.job), 500);
     return;
   }
@@ -1068,7 +1169,7 @@ function exportStatus(d) {
   setExportRunning(false);
   setExportProgress(false);
   if (d.status === 'done') {
-    setExportInfo(`Saved ${d.name} (${size}) in ${d.elapsed.toFixed(1)} s`);
+    setFinalExportInfo(`Saved ${d.name} (${kind}, ${d.width} × ${d.height} px) in ${d.elapsed.toFixed(1)} s`);
     const a = document.createElement('a');
     a.href = `/export/${d.job}/file`;
     a.download = d.name;
@@ -1076,9 +1177,9 @@ function exportStatus(d) {
     a.click();
     a.remove();
   } else if (d.status === 'error') {
-    setExportInfo(`Download failed: ${d.error}`, true);
+    setFinalExportInfo(`Download failed: ${d.error}`, true);
   } else {
-    setExportInfo('Download cancelled');
+    setFinalExportInfo('Download cancelled');
   }
 }
 
@@ -1091,7 +1192,7 @@ function pollExport(jobId) {
       exportJob = null;
       setExportRunning(false);
       setExportProgress(false);
-      setExportInfo(`Lost connection to the server: ${err.message}`, true);
+      setFinalExportInfo(`Lost connection to the server: ${err.message}`, true);
     });
 }
 
@@ -1103,7 +1204,7 @@ $('downloadOverlay').addEventListener('click', async () => {
   clearTimeout(exportTimer);
   setExportRunning(false);
   setExportProgress(false);
-  setExportInfo('Download cancelled');
+  setFinalExportInfo('Download cancelled');
   if (!jobId) return;                     // still preparing: startExport cancels it
   try { await fetch(`/export/${jobId}/cancel`, { method: 'POST' }); } catch (err) { /* ignore */ }
 });
@@ -1113,3 +1214,6 @@ $('exportData').addEventListener('change', updateSelectedInfo);
 document.querySelectorAll('input[name="cloudOption"]').forEach((el) => {
   el.addEventListener('change', updateSelectedInfo);
 });
+
+// the size estimate depends on Map view / Full scene
+$('exportExtent').addEventListener('change', updateSizeEstimate);
