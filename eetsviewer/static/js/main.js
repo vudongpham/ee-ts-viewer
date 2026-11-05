@@ -1179,7 +1179,7 @@ function mapBounds() {
 
 const MASK_NAMES = { 1: 'Default', 2: 'Aggressive' };
 
-// cloud mask of the download: null = raw, otherwise the Cloud mask of the
+// cloud mask of the download: null = original, otherwise the Cloud mask of the
 // panel (None -> Default)
 function exportMask() {
   if ($('exportData').value !== 'masked') return null;
@@ -1222,7 +1222,7 @@ async function startExport() {
 
 function exportStatus(d) {
   if (d.job !== exportJob) return;
-  const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]})` : 'raw';
+  const kind = d.mask ? `cloud masked (${MASK_NAMES[d.mask]})` : 'original';
   if (d.status === 'running') {
     const pct = d.total ? Math.round((100 * d.current) / d.total) : 0;
     setExportProgress(d.total ? d.current / d.total : 0);
@@ -1274,7 +1274,7 @@ $('downloadOverlay').addEventListener('click', async () => {
   try { await fetch(`/export/${jobId}/cancel`, { method: 'POST' }); } catch (err) { /* ignore */ }
 });
 
-// the file name depends on Raw / Cloud masked and on the Cloud mask level
+// the file name depends on Original / Cloud masked and on the Cloud mask level
 $('exportData').addEventListener('change', updateSelectedInfo);
 document.querySelectorAll('input[name="cloudOption"]').forEach((el) => {
   el.addEventListener('change', updateSelectedInfo);

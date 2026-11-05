@@ -495,7 +495,7 @@ MAX_EXPORT_JOBS = 8
 # Terminal output (one start and one result line per download)
 # ---------------------------------------------------------------------------
 
-MASK_KINDS = {None: "raw", MASK_DEFAULT: "cloud masked (Default)",
+MASK_KINDS = {None: "original", MASK_DEFAULT: "cloud masked (Default)",
               MASK_AGGRESSIVE: "cloud masked (Aggressive)"}
 
 
