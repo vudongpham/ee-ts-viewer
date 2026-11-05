@@ -17,6 +17,7 @@
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script defer src="{{ url_for('static', filename='js/smoothing.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
 </head>
 
@@ -99,8 +100,9 @@
           <select id="lineMode" title="How the line through the observations is drawn (applied instantly, no re-extraction)">
             <option value="linear" selected>Linear interpolation</option>
             <option value="spline">Spline (monotone cubic)</option>
-            <option value="movavg">Moving average (5 obs.)</option>
-            <option value="savgol">Savitzky–Golay (7 obs., quadratic)</option>
+            <option value="movavg">Moving average (adaptive)</option>
+            <option value="savgol">Savitzky–Golay (adaptive)</option>
+            <option value="rbf">RBF ensemble (adaptive)</option>
             <option value="harmBasic">Harmonic basic (1 harmonic + trend)</option>
             <option value="harmAdvanced">Harmonic advanced (2 harmonics + trend)</option>
             <option value="harmFull">Harmonic full (3 harmonics + trend)</option>

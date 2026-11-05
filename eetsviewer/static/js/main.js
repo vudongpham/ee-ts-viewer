@@ -10,12 +10,14 @@ const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'TCB', 'TCG',
 const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
 const POLL_MS = 120;          // status poll interval while a job is running
 
+// Landsat is magenta and Sentinel-2 green in both sensor modes: the
+// harmonized HLS L30 / S30 points use the colours of their satellites
 const COLORS = {
   LND: { face: 'rgb(197, 27, 138)', edge: 'rgb(0, 0, 0)' },
   SEN: { face: 'rgb(35, 139, 69)', edge: 'rgb(0, 0, 0)' },
-  HLSL30: { face: 'rgb(230, 145, 20)', edge: 'rgb(0, 0, 0)' },
-  HLSS30: { face: 'rgb(33, 113, 181)', edge: 'rgb(0, 0, 0)' },
 };
+COLORS.HLSL30 = COLORS.LND;
+COLORS.HLSS30 = COLORS.SEN;
 
 const $ = (id) => document.getElementById(id);
 
@@ -356,77 +358,16 @@ function insertSorted(points) {
 // on the already sorted series, so switching is instant.
 // ---------------------------------------------------------------------------
 
-const MOVAVG_WINDOW = 5;     // observations, centred
-const SAVGOL_WINDOW = 7;     // observations, centred
-const SAVGOL_ORDER = 2;      // local polynomial degree
+// The moving average, Savitzky–Golay and RBF lines are adaptive: their
+// windows / kernel widths follow the density and distribution of the clear
+// observations (see static/js/smoothing.js).
+const solve = Smoothing.solve;
 
-// centred moving average over a fixed number of observations
-// (the window shrinks symmetrically at the ends of the series)
-function movingAverage(pts, window) {
-  const half = window >> 1;
-  const n = pts.length;
-  const prefix = new Float64Array(n + 1);
-  for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + pts[i].y;
-  return pts.map((p, i) => {
-    const h = Math.min(half, i, n - 1 - i);
-    const sum = prefix[i + h + 1] - prefix[i - h];
-    return { x: p.x, y: Math.round(sum / (2 * h + 1)) };
-  });
-}
+const days = (v) => `${Math.round(v)} d`;
 
-// Savitzky–Golay style smoothing for irregularly spaced data: a least-squares
-// polynomial is fitted to the observations in a centred window (using the real
-// acquisition dates) and evaluated at the centre point.
-function savitzkyGolay(pts, window, order) {
-  const half = window >> 1;
-  const n = pts.length;
-  return pts.map((p, i) => {
-    const lo = Math.max(0, i - half);
-    const hi = Math.min(n - 1, i + half);
-    const deg = Math.min(order, hi - lo);   // never more terms than points
-    if (deg < 1) return { x: p.x, y: p.y };
-    const m = deg + 1;
-    // normal equations A c = b, x in days relative to the centre point
-    const A = Array.from({ length: m }, () => new Float64Array(m));
-    const b = new Float64Array(m);
-    for (let k = lo; k <= hi; k++) {
-      const t = (pts[k].x - p.x) / DAY_MS;
-      const pw = new Float64Array(2 * m - 1);
-      pw[0] = 1;
-      for (let j = 1; j < pw.length; j++) pw[j] = pw[j - 1] * t;
-      for (let r = 0; r < m; r++) {
-        b[r] += pw[r] * pts[k].y;
-        for (let c = 0; c < m; c++) A[r][c] += pw[r + c];
-      }
-    }
-    const c = solve(A, b);
-    // c[0] is the fitted value at t = 0, i.e. at the centre observation
-    return { x: p.x, y: c && Number.isFinite(c[0]) ? Math.round(c[0]) : p.y };
-  });
-}
-
-// tiny Gaussian elimination with partial pivoting (m <= 8 here)
-function solve(A, b) {
-  const m = b.length;
-  for (let col = 0; col < m; col++) {
-    let piv = col;
-    for (let r = col + 1; r < m; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
-    if (Math.abs(A[piv][col]) < 1e-12) return null;
-    [A[col], A[piv]] = [A[piv], A[col]];
-    [b[col], b[piv]] = [b[piv], b[col]];
-    for (let r = col + 1; r < m; r++) {
-      const f = A[r][col] / A[col][col];
-      for (let c = col; c < m; c++) A[r][c] -= f * A[col][c];
-      b[r] -= f * b[col];
-    }
-  }
-  const x = new Float64Array(m);
-  for (let r = m - 1; r >= 0; r--) {
-    let s = b[r];
-    for (let c = r + 1; c < m; c++) s -= A[r][c] * x[c];
-    x[r] = s / A[r][r];
-  }
-  return x;
+// line modes whose curve comes with the parameters it used (shown in the legend)
+function adaptiveMode(fit, describe) {
+  return { tension: 0, adaptive: true, fit, describe };
 }
 
 // Harmonic regression (Zhu et al. 2015, https://doi.org/10.1016/j.rse.2015.02.009):
@@ -497,10 +438,15 @@ const LINE_MODES = {
   // Chart.js monotone cubic interpolation: smooth, passes through every
   // observation and never overshoots between them
   spline: { label: 'Spline (monotone cubic)', cubic: 'monotone', data: (pts) => pts.slice() },
-  movavg: { label: `Moving average (${MOVAVG_WINDOW} obs.)`, tension: 0,
-            data: (pts) => movingAverage(pts, MOVAVG_WINDOW) },
-  savgol: { label: `Savitzky–Golay (${SAVGOL_WINDOW} obs.)`, cubic: 'monotone',
-            data: (pts) => savitzkyGolay(pts, SAVGOL_WINDOW, SAVGOL_ORDER) },
+  movavg: adaptiveMode(
+    (pts) => Smoothing.movingAverage(pts, { k: 5 }),
+    (p) => `Moving average (adaptive: 5 obs., ${days(p.hMin)}–${days(p.hMax)})`),
+  savgol: adaptiveMode(
+    (pts) => Smoothing.savitzkyGolay(pts, { k: 7, degree: 2 }),
+    (p) => `Savitzky–Golay (adaptive: 7 obs., ${days(p.hMin)}–${days(p.hMax)})`),
+  rbf: adaptiveMode(
+    (pts) => Smoothing.rbf(pts),
+    (p) => `RBF ensemble (σ = ${p.sigmas.join('/')} d)`),
   harmBasic:    harmonicMode('basic', 'Harmonic basic'),
   harmAdvanced: harmonicMode('advanced', 'Harmonic advanced'),
   harmFull:     harmonicMode('full', 'Harmonic full'),
@@ -510,12 +456,19 @@ const LINE_MODES = {
 function applyLineMode(ds) {
   const key = $('lineMode').value;
   const mode = LINE_MODES[key] || LINE_MODES.linear;
-  ds.label = mode.label;
   ds.cubicInterpolationMode = mode.cubic || 'default';
   ds.tension = mode.tension || 0;
-  ds.data = mode.data(series);
-  if (mode.minObs && series.length && !ds.data.length) {
-    ds.label += ` (needs ≥ ${mode.minObs} obs.)`;
+  if (mode.adaptive) {
+    // the curve has null values in gaps: the line is broken there
+    const { data, params } = mode.fit(series);
+    ds.data = data;
+    ds.label = params ? mode.describe(params) : 'Line (needs ≥ 3 obs.)';
+  } else {
+    ds.label = mode.label;
+    ds.data = mode.data(series);
+    if (mode.minObs && series.length && !ds.data.length) {
+      ds.label += ` (needs ≥ ${mode.minObs} obs.)`;
+    }
   }
   // also overrides a legend click that had hidden the line
   chart.setDatasetVisibility(LINE_DS, key !== 'none');
