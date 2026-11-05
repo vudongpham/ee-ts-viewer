@@ -1,10 +1,12 @@
 import time
+from datetime import date
 
 from eetsviewer import app as appmod
 from eetsviewer import earthengine as eeapi
 
 
-def fake_fetch_year(sensor, lng, lat, year):
+def fake_fetch_period(sensor, lng, lat, p0, p1):
+    year = p0.year
     if sensor == "LND07":
         raise RuntimeError("boom")
     return [{"id": f"{sensor}_{year}", "day": (year - 1970) * 365 + 100,
@@ -14,8 +16,8 @@ def fake_fetch_year(sensor, lng, lat, year):
 
 
 def test_job_flow(monkeypatch):
-    monkeypatch.setattr(eeapi, "fetch_year", fake_fetch_year)
-    eeapi.year_cache = eeapi.YearCache()
+    monkeypatch.setattr(eeapi, "fetch_period", fake_fetch_period)
+    eeapi.period_cache = eeapi.PeriodCache()
     client = appmod.app.test_client()
 
     assert client.get("/").status_code == 200
@@ -56,7 +58,7 @@ def test_empty_collection_is_not_an_error(monkeypatch):
     monkeypatch.setattr(eeapi.ee.Geometry, "Point", lambda *a, **k: None)
     monkeypatch.setattr(eeapi, "build_collection", lambda *a, **k: FakeCol())
     monkeypatch.setattr(eeapi, "_get_info", raise_empty)
-    assert eeapi.fetch_year("SEN2C", 13.4, 52.5, 2024) == []
+    assert eeapi.fetch_period("SEN2C", 13.4, 52.5, date(2024, 1, 1), date(2025, 1, 1)) == []
 
 
 def test_groups_cannot_be_mixed():
