@@ -130,87 +130,141 @@
   const out = (day, y) => ({ x: day * DAY_MS, y: y == null || !Number.isFinite(y) ? null : Math.round(y) });
 
   // ------------------------------------------------------------------------
-  // Adaptive moving average: tricube-weighted mean over a window that holds
-  // `k` observations (local regression of degree 0, adaptive span)
+  // Robust adaptive local regression (LOWESS-like), the core of the moving
+  // average (degree 0) and Savitzky-Golay (local polynomial, degree <= 2).
+  //
+  //  * window: around each evaluation day it grows until it holds `k`
+  //    observations, but is never shorter than hMin or longer than hMax
+  //    (half widths in days, derived from the median spacing)
+  //  * weights: tricube in time x robustness weight per observation
+  //  * robustness: after a first fit, observations far from the curve
+  //    (residual > 6 x median absolute residual, e.g. undetected clouds)
+  //    get bisquare weights near 0 and the curve is fitted again
+  //    (`robust` iterations), so they no longer pull the curve down
+  //  * degree (Savitzky-Golay): local quadratic where both sides have
+  //    enough observations, blended smoothly into a local linear fit
+  //    towards the ends of the series, so the curve neither overshoots
+  //    there nor gets kinks
   // ------------------------------------------------------------------------
 
-  function movingAverage(pts, opts = {}) {
-    const k = opts.k || 5;
-    const { t, y, n } = toDays(pts);
-    const dt = medianSpacing(t);
-    if (n < 3 || !dt) return { data: [], params: null };
-    const hMin = Math.max(4, dt);
-    const hMax = clamp(4 * dt, 30, 120);
-    const data = dayGrid(t[0], t[n - 1]).map((g) => {
-      const w = adaptiveWindow(t, g, k, hMin, hMax);
-      let sw = 0, swy = 0, used = 0;
-      for (let i = w.lo; i < w.hi; i++) {
-        const wi = tricube((t[i] - g) / w.h);
-        if (wi > 0) { sw += wi; swy += wi * y[i]; used++; }
-      }
-      return out(g, used >= 2 ? swy / sw : null);
-    });
-    return { data: breakGaps(data, t, dt), params: { k, spacing: dt, hMin, hMax, gap: gapLimit(dt) } };
-  }
-
-  // ------------------------------------------------------------------------
-  // Adaptive Savitzky–Golay: local polynomial (tricube-weighted least
-  // squares) over a window that holds `k` observations. The degree adapts
-  // too: quadratic with >= 6 observations and >= 2 on each side, linear with
-  // >= 3 and >= 1 on each side, otherwise the weighted mean. So the curve
-  // does not overshoot at the ends of the series or at the edge of a gap.
-  // ------------------------------------------------------------------------
-
-  function savitzkyGolay(pts, opts = {}) {
-    const k = opts.k || 7;
-    const maxDeg = opts.degree == null ? 2 : opts.degree;
-    const { t, y, n } = toDays(pts);
-    const dt = medianSpacing(t);
-    if (n < 3 || !dt) return { data: [], params: null };
-    const hMin = Math.max(8, 1.5 * dt);
-    const hMax = clamp(6 * dt, 45, 150);
-    const data = dayGrid(t[0], t[n - 1]).map((g) => {
-      const w = adaptiveWindow(t, g, k, hMin, hMax);
-      let used = 0, left = 0, right = 0, ylo = Infinity, yhi = -Infinity;
-      let sw = 0, swy = 0;
-      const ws = [];
-      for (let i = w.lo; i < w.hi; i++) {
-        const wi = tricube((t[i] - g) / w.h);
-        ws.push(wi);
-        if (wi <= 0) continue;
-        used++; sw += wi; swy += wi * y[i];
-        if (t[i] < g - 0.5) left++; else if (t[i] > g + 0.5) right++;
-        if (y[i] < ylo) ylo = y[i];
-        if (y[i] > yhi) yhi = y[i];
-      }
-      if (used < 2) return out(g, null);
-      let deg = 0;
-      if (maxDeg >= 2 && used >= 6 && left >= 2 && right >= 2) deg = 2;
-      else if (maxDeg >= 1 && used >= 3 && left >= 1 && right >= 1) deg = 1;
-      if (deg === 0) return out(g, swy / sw);
-
-      // weighted least squares in u = (t - g) / h  (in [-1, 1]: well conditioned)
-      const m = deg + 1;
-      const A = Array.from({ length: m }, () => new Float64Array(m));
-      const b = new Float64Array(m);
-      for (let i = w.lo, j = 0; i < w.hi; i++, j++) {
-        const wi = ws[j];
-        if (wi <= 0) continue;
-        const u = (t[i] - g) / w.h;
+  const smoothstep = (x) => { const s = clamp(x, 0, 1); return s * s * (3 - 2 * s); };
+  // value at `at` of the robust local fit. Degree 0 (weighted mean) for
+  // maxDeg 0; otherwise a blend of the local linear and the local quadratic
+  // fit. The quadratic gets full weight where the window is balanced (the
+  // weighted mean position of its observations, -1 = all left ... +1 = all
+  // right, is within +/-0.2) and holds enough weight (>= 3), and fades out
+  // smoothly towards the ends of the series (|mean position| 0.5 or less
+  // than 1.5 weight: linear). Both measures change continuously with
+  // `at`, so the curve has no kinks (switching the degree abruptly would
+  // create them).
+  function localFit(t, y, rw, at, k, hMin, hMax, maxDeg) {
+    const w = adaptiveWindow(t, at, k, hMin, hMax);
+    const m = maxDeg >= 2 ? 3 : 2;
+    const A = Array.from({ length: m }, () => new Float64Array(m));
+    const b = new Float64Array(m);
+    let used = 0, sw = 0, swy = 0, swu = 0, ylo = Infinity, yhi = -Infinity;
+    for (let i = w.lo; i < w.hi; i++) {
+      const wi = tricube((t[i] - at) / w.h) * rw[i];
+      if (wi <= 1e-12) continue;
+      used++; sw += wi; swy += wi * y[i]; swu += wi * (t[i] - at) / w.h;
+      if (y[i] < ylo) ylo = y[i];
+      if (y[i] > yhi) yhi = y[i];
+      if (maxDeg >= 1) {
+        const u = (t[i] - at) / w.h;     // in [-1, 1]: well conditioned
         const p = [1, u, u * u, u * u * u, u * u * u * u];
         for (let r = 0; r < m; r++) {
           b[r] += wi * p[r] * y[i];
           for (let c = 0; c < m; c++) A[r][c] += wi * p[r + c];
         }
       }
-      const c = solve(A, b);
-      if (!c || !Number.isFinite(c[0])) return out(g, swy / sw);
-      // never further outside the local data range than 25 % of it
-      const pad = 0.25 * (yhi - ylo);
-      return out(g, clamp(c[0], ylo - pad, yhi + pad));
-    });
-    return { data: breakGaps(data, t, dt), params: { k, spacing: dt, hMin, hMax, gap: gapLimit(dt) } };
+    }
+    if (used < 2 || sw <= 0) return null;
+    const mean = swy / sw;
+    if (maxDeg < 1) return mean;
+
+    const sub = (n) => [A.slice(0, n).map((row) => Float64Array.from(row.slice(0, n))), Float64Array.from(b.slice(0, n))];
+    const c1 = solve(...sub(2));
+    const f1 = c1 && Number.isFinite(c1[0]) ? c1[0] : mean;
+    let f = f1;
+    if (m === 3 && used >= 3) {
+      const balance = Math.abs(swu / sw);
+      const alpha = smoothstep((0.5 - balance) / 0.3) * smoothstep((sw - 1.5) / 1.5);
+      if (alpha > 0) {
+        const c2 = solve(...sub(3));
+        if (c2 && Number.isFinite(c2[0])) f = alpha * c2[0] + (1 - alpha) * f1;
+      }
+    }
+    // never further outside the local data range than 25 % of it
+    const pad = 0.25 * (yhi - ylo);
+    return clamp(f, ylo - pad, yhi + pad);
   }
+
+  function median(values) {
+    const a = Float64Array.from(values).sort();
+    const m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  }
+
+  function robustLocal(pts, cfg) {
+    const { t, y, n } = toDays(pts);
+    const dt = medianSpacing(t);
+    if (n < 3 || !dt) return { data: [], params: null };
+    const { k, maxDeg, robust } = cfg;
+    const hMin = cfg.hMin(dt);
+    const hMax = Math.max(hMin, cfg.hMax(dt));
+    const rw = new Float64Array(n).fill(1);
+    for (let it = 0; it < robust; it++) {
+      const res = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        const f = localFit(t, y, rw, t[i], k, hMin, hMax, maxDeg);
+        res[i] = f == null ? 0 : y[i] - f;
+      }
+      const s = 6 * median(Array.from(res, Math.abs));
+      if (!(s > 0)) break;
+      for (let i = 0; i < n; i++) {
+        const u = res[i] / s;
+        rw[i] = Math.abs(u) < 1 ? (1 - u * u) ** 2 : 0;
+      }
+    }
+    const data = dayGrid(t[0], t[n - 1]).map((g) => out(g, localFit(t, y, rw, g, k, hMin, hMax, maxDeg)));
+    return { data: breakGaps(data, t, dt), params: { k, robust, spacing: dt, hMin, hMax, gap: gapLimit(dt) } };
+  }
+
+  // Adaptive moving average: robust tricube-weighted mean
+  function movingAverage(pts, opts = {}) {
+    return robustLocal(pts, {
+      k: opts.k || MA_DEFAULTS.k, maxDeg: 0,
+      robust: opts.robust == null ? MA_DEFAULTS.robust : opts.robust,
+      hMin: opts.hMin || MA_DEFAULTS.hMin, hMax: opts.hMax || MA_DEFAULTS.hMax,
+    });
+  }
+
+  // Adaptive Savitzky-Golay: robust tricube-weighted local polynomial
+  function savitzkyGolay(pts, opts = {}) {
+    return robustLocal(pts, {
+      k: opts.k || SG_DEFAULTS.k, maxDeg: opts.degree == null ? 2 : opts.degree,
+      robust: opts.robust == null ? SG_DEFAULTS.robust : opts.robust,
+      hMin: opts.hMin || SG_DEFAULTS.hMin, hMax: opts.hMax || SG_DEFAULTS.hMax,
+    });
+  }
+
+  // Window settings (half widths in days, from the median spacing dt),
+  // tuned on synthetic seasonal NDVI series (steep crop-like and gentle
+  // seasons, 3-16 day spacing, noise and undetected clouds) for the lowest
+  // error to the true curve among smooth curves:
+  //   moving average : 5 obs., at least 20 days / 2 dt, at most 8 dt (45-150)
+  //   Savitzky-Golay : 9 obs., at least 40 days / 2 dt, at most 10 dt
+  //                    (60-180), one robustness pass against cloud outliers
+  const MA_DEFAULTS = {
+    k: 5, robust: 0,
+    hMin: (dt) => Math.max(20, 2 * dt),
+    hMax: (dt) => clamp(8 * dt, 45, 150),
+  };
+  const SG_DEFAULTS = {
+    k: 9, robust: 1,
+    hMin: (dt) => Math.max(40, 2 * dt),
+    hMax: (dt) => clamp(10 * dt, 60, 180),
+  };
 
   // ------------------------------------------------------------------------
   // RBF ensemble (after Schwieder et al. 2016, doi:10.1016/j.jag.2016.06.019):
@@ -278,7 +332,7 @@
   }
 
   const api = {
-    DAY_MS, medianSpacing, kthDistance, solve,
+    DAY_MS, medianSpacing, kthDistance, solve, MA_DEFAULTS, SG_DEFAULTS,
     movingAverage, savitzkyGolay, rbfEnsemble, rbf,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

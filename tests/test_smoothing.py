@@ -126,3 +126,33 @@ def test_same_gap_rule_for_all_methods():
     for r in run(x, y, ("movingAverage",), ("savitzkyGolay",), ("rbf",)):
         inside = (r["x"] > 18300) & (r["x"] < 18341)
         assert not np.isnan(r["y"][inside]).any()
+
+
+def gentle_season(days):
+    d = np.asarray(days, dtype=float) % 365
+    return 2000 + 6000 * (1 / (1 + np.exp(-(d - 120) / 20)) - 1 / (1 + np.exp(-(d - 270) / 25)))
+
+
+def test_curves_have_no_kinks():
+    # noise-free season, every 5 days with missing days: the curves must be
+    # smooth everywhere, including the ends of the series (no jumps from
+    # switching window size or polynomial degree)
+    days = np.array([d for d in range(0, 730, 5) if (d * 7919) % 10 >= 3], dtype=float) + 18000
+    y = gentle_season(days - 18000)
+    for r in run(days, y, ("movingAverage",), ("savitzkyGolay",), ("rbf",)):
+        v = r["y"][~np.isnan(r["y"])]
+        second = np.abs(np.diff(v, 2))
+        assert second.max() < 25, second.max()
+
+
+def test_savitzky_golay_resists_cloud_outliers():
+    rng = np.random.default_rng(5)
+    days = np.arange(0, 730, 5, dtype=float)
+    y = gentle_season(days) + rng.normal(0, 300, len(days))
+    clouds = rng.random(len(days)) < 0.08
+    y[clouds] -= 2500                                  # undetected clouds
+    (robust, plain) = run(days + 18000, y, ("savitzkyGolay",), ("savitzkyGolay", {"robust": 0}))
+    truth = gentle_season(robust["x"] - 18000)
+    bias = lambda r: np.nanmean(r["y"] - truth)
+    assert abs(bias(robust)) < 0.5 * abs(bias(plain))
+    assert abs(bias(robust)) < 120
