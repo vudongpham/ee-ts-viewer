@@ -19,6 +19,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script defer src="{{ url_for('static', filename='js/smoothing.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/grid.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
 </head>
 
@@ -167,6 +168,7 @@
         </select>
       </label>
     </div>
+    <div id="dbSize" class="db-size"></div>
     <button id="downloadOverlay" disabled
             title="Save all reflective bands of the selected scene as an int16 GeoTIFF (reflectance × 10000, nodata -9999)">Download selected image</button>
     <div id="exProgressWrap" class="progress" aria-hidden="true"><div id="exProgressBar"></div></div>

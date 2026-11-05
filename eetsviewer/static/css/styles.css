@@ -408,3 +408,18 @@ input.coord.invalid {
   color: #b00020;
   font-size: 12px;
 }
+
+/* size estimate of the download */
+.download-box .db-size {
+  margin: -0.15rem 0 0.45rem;
+  font-size: 12px;
+  color: #333;
+}
+
+.download-box .db-size:empty {
+  display: none;
+}
+
+.download-box .db-size.error {
+  color: #b00020;
+}

@@ -862,6 +862,29 @@ let exportBusy = false;    // a download is being prepared or running
 let exportToken = 0;       // bumped by Cancel: ignores a request still being prepared
 let exportTimer = null;
 
+// A final message (saved / cancelled / failed) stays until the next action
+// anywhere on the page: a click, a key press or zooming with the wheel.
+let clearInfoOnNextAction = null;
+
+function setFinalExportInfo(text, isError) {
+  setExportInfo(text, isError);
+  // registered after this event loop turn, so the click that ended the
+  // download (e.g. Cancel) does not clear its own message
+  setTimeout(() => {
+    if (clearInfoOnNextAction) return;
+    clearInfoOnNextAction = () => {
+      for (const ev of ['pointerdown', 'keydown', 'wheel']) {
+        document.removeEventListener(ev, clearInfoOnNextAction, true);
+      }
+      clearInfoOnNextAction = null;
+      if (!exportBusy) setExportInfo('');
+    };
+    for (const ev of ['pointerdown', 'keydown', 'wheel']) {
+      document.addEventListener(ev, clearInfoOnNextAction, true);
+    }
+  }, 0);
+}
+
 function setExportInfo(text, isError) {
   const el = $('exportInfo');
   el.textContent = text;
@@ -909,11 +932,14 @@ function updateSelectedInfo() {
     $('dbId').textContent = '';
     setFileName('');
     updateCloudCover();
+    sceneRequest++;
+    setSize('');
     return;
   }
   $('dbScene').textContent = `${SENSOR_LABELS[p.s] || p.s} · ${fmtDate(p.x)}`;
   $('dbId').textContent = p.id;
   updateCloudCover();
+  loadSceneInfo(p);
   const mask = exportMask();
   const key = `${p.s}/${p.id}/${mask}`;
   if (key === shownScene) return;
@@ -985,6 +1011,63 @@ function updateCloudCover() {
     });
 }
 
+// Size of the download: the pixel grid the server would write for the
+// selected Area, computed in the browser (static/js/grid.js) from the
+// scene's footprint and projection, so it follows panning / zooming
+// instantly. The size in MB is uncompressed (the file is compressed).
+const sceneInfos = new Map();     // sensor/id -> {bbox, resolution, bands, max_side}
+let sceneRequest = 0;
+
+function loadSceneInfo(p) {
+  const key = `${p.s}/${p.id}`;
+  if (sceneInfos.has(key)) { updateSizeEstimate(); return; }
+  const req = ++sceneRequest;
+  setSize('Size: …');
+  fetch(`/export/scene?${new URLSearchParams({ sensor: p.s, id: p.id })}`)
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.bbox) sceneInfos.set(key, d);
+      if (req !== sceneRequest) return;
+      if (d.bbox) updateSizeEstimate();
+      else setSize(`Size unavailable: ${d.error || 'unknown error'}`, true);
+    })
+    .catch((err) => { if (req === sceneRequest) setSize(`Size unavailable: ${err.message}`, true); });
+}
+
+function setSize(text, isError) {
+  const el = $('dbSize');
+  el.textContent = text;
+  el.classList.toggle('error', !!isError);
+}
+
+function updateSizeEstimate() {
+  const p = overlayPoint;
+  if (!p) { setSize(''); return; }
+  const info = sceneInfos.get(`${p.s}/${p.id}`);
+  if (!info) return;
+  const fullScene = $('exportExtent').value === 'scene';
+  let view = null;
+  if (!fullScene) {
+    const v = map.getBounds();
+    view = [Math.max(-180, v.getWest()), Math.max(-90, v.getSouth()),
+            Math.min(180, v.getEast()), Math.min(90, v.getNorth())];
+  }
+  const what = fullScene ? 'Full scene' : 'Map view';
+  const r = Grid.estimate(info, view);
+  if (r.empty) { setSize(`${what}: the view does not cover this scene`, true); return; }
+  const fmt = (v) => v.toLocaleString('en');
+  const mb = r.bytes / 1e6;
+  const size = mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.max(1, Math.round(mb))} MB`;
+  if (r.tooLarge) {
+    setSize(`${what}: ${fmt(r.width)} × ${fmt(r.height)} px, larger than the ` +
+            `${fmt(info.max_side)} px limit${fullScene ? '' : ': zoom in'}`, true);
+  } else {
+    setSize(`${what}: ${fmt(r.width)} × ${fmt(r.height)} px · ${info.bands} bands · ${size}`);
+  }
+}
+
+map.on('moveend', () => { if (overlayPoint) updateSizeEstimate(); });
+
 function setFileName(text, isError) {
   const el = $('dbFile');
   el.textContent = text;
@@ -1046,7 +1129,7 @@ async function startExport() {
   if (!d.job) {
     setExportRunning(false);
     setExportProgress(false);
-    setExportInfo(`Download failed: ${d.error || 'unknown error'}`, true);
+    setFinalExportInfo(`Download failed: ${d.error || 'unknown error'}`, true);
     return;
   }
   exportJob = d.job;
@@ -1068,7 +1151,7 @@ function exportStatus(d) {
   setExportRunning(false);
   setExportProgress(false);
   if (d.status === 'done') {
-    setExportInfo(`Saved ${d.name} (${size}) in ${d.elapsed.toFixed(1)} s`);
+    setFinalExportInfo(`Saved ${d.name} (${size}) in ${d.elapsed.toFixed(1)} s`);
     const a = document.createElement('a');
     a.href = `/export/${d.job}/file`;
     a.download = d.name;
@@ -1076,9 +1159,9 @@ function exportStatus(d) {
     a.click();
     a.remove();
   } else if (d.status === 'error') {
-    setExportInfo(`Download failed: ${d.error}`, true);
+    setFinalExportInfo(`Download failed: ${d.error}`, true);
   } else {
-    setExportInfo('Download cancelled');
+    setFinalExportInfo('Download cancelled');
   }
 }
 
@@ -1091,7 +1174,7 @@ function pollExport(jobId) {
       exportJob = null;
       setExportRunning(false);
       setExportProgress(false);
-      setExportInfo(`Lost connection to the server: ${err.message}`, true);
+      setFinalExportInfo(`Lost connection to the server: ${err.message}`, true);
     });
 }
 
@@ -1103,7 +1186,7 @@ $('downloadOverlay').addEventListener('click', async () => {
   clearTimeout(exportTimer);
   setExportRunning(false);
   setExportProgress(false);
-  setExportInfo('Download cancelled');
+  setFinalExportInfo('Download cancelled');
   if (!jobId) return;                     // still preparing: startExport cancels it
   try { await fetch(`/export/${jobId}/cancel`, { method: 'POST' }); } catch (err) { /* ignore */ }
 });
@@ -1113,3 +1196,6 @@ $('exportData').addEventListener('change', updateSelectedInfo);
 document.querySelectorAll('input[name="cloudOption"]').forEach((el) => {
   el.addEventListener('change', updateSelectedInfo);
 });
+
+// the size estimate depends on Map view / Full scene
+$('exportExtent').addEventListener('change', updateSizeEstimate);

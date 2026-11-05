@@ -367,3 +367,18 @@ def test_cloud_cover_route(monkeypatch):
     assert client.get("/export/cloud?sensor=LND08&id=../x&mask=1").status_code == 400
     assert client.get("/export/cloud?sensor=LND08&id=LC08_193023_20240212&mask=0").status_code == 400
     assert client.get("/export/cloud?sensor=NOPE&id=x&mask=1").status_code == 400
+
+
+def test_scene_info(monkeypatch):
+    fp = {"type": "Polygon", "coordinates": [tile_ring()]}
+    monkeypatch.setattr(ex, "scene_meta", lambda s, i: {"time": 0, "footprint": fp})
+    info = ex.scene_info("SEN2A", "20240212T101021_20240212T101019_T32UQD")
+    lons, lats = zip(*tile_ring())
+    assert info["bbox"] == [min(lons), min(lats), max(lons), max(lats)]
+    assert (info["resolution"], info["bands"], info["max_side"]) == (10, 12, ex.MAX_SIDE)
+    assert ex.scene_info("LND08", "LC08_193023_20240212")["resolution"] == 30
+
+    client = appmod.app.test_client()
+    r = client.get("/export/scene?sensor=HLSS30&id=T32UQD_20240212T101019").get_json()
+    assert r["bands"] == 13 and r["resolution"] == 30
+    assert client.get("/export/scene?sensor=LND08&id=../x").status_code == 400
