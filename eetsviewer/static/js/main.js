@@ -2,8 +2,12 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // y axis: 110 % of the highest / lowest value (rounded outwards to 100),
-// cut off at +/-10000 (reflectance / index x 10000)
+// within +/-10000 (reflectance / index x 10000). Only when values go beyond
+// +/-10000 does an outlier fence decide how far the axis extends (see
+// axisRange).
 const Y_LIMIT = 10000;
+const Y_FENCE = 3;            // fence: quartiles -/+ 3 x interquartile range
+const Y_FENCE_MIN_OBS = 8;    // fewer observations: no fence
 const Y_PAD = 1.1;
 const Y_ROUND = 100;
 const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'MNDWI', 'AWEI', 'MSI', 'TCB', 'TCG', 'TCW']);
@@ -561,18 +565,74 @@ function render() {
   const { min, max } = axisRange(series.map((p) => p.y));
   chart.options.scales.y.min = min;
   chart.options.scales.y.max = max;
+  showAxisNote(series, min, max);
   chart.update();
 }
 
+// below the chart: how many observations lie outside the y axis (outliers
+// cut off by axisRange), so they are not silently missing
+function showAxisNote(pts, min, max) {
+  let above = 0, below = 0, top = -Infinity, bottom = Infinity;
+  for (const p of pts) {
+    if (p.y > max) { above++; if (p.y > top) top = p.y; }
+    else if (p.y < min) { below++; if (p.y < bottom) bottom = p.y; }
+  }
+  const n = (k) => `${k} value${k === 1 ? '' : 's'}`;
+  const parts = [];
+  if (above) parts.push(`${n(above)} above the axis (up to ${top})`);
+  if (below) parts.push(`${n(below)} below the axis (down to ${bottom})`);
+  const note = $('axisNote');
+  note.hidden = !parts.length;
+  note.textContent = parts.length
+    ? `Outliers not shown: ${parts.join(', ')}. They are still in the copied values and the CSV.`
+    : '';
+}
+
+// value at quantile q (0..1) of sorted values, linearly interpolated
+function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q;
+  const i = Math.floor(pos);
+  return i + 1 < sorted.length ? sorted[i] + (sorted[i + 1] - sorted[i]) * (pos - i) : sorted[i];
+}
+
 // Axis range: 0 .. 110 % of the highest value for positive data, down to
-// 110 % of the lowest value when there are negative values. Values beyond
-// +/-10000 are cut off (they are not drawn and cannot be hovered).
+// 110 % of the lowest value when there are negative values, cut off at
+// +/-10000. Values within +/-10000 are therefore always shown.
+// Only when values go beyond +/-10000 (e.g. MSI, AWEI, or a spike from an
+// undetected cloud or a tiny index denominator) does the axis extend past
+// it, as far as the outlier fence (Tukey) allows: the 75th percentile
+// + 3 x IQR above, the 25th percentile - 3 x IQR below (IQR = interquartile
+// range of all clear observations). Regular values beyond +/-10000 are
+// shown; isolated spikes beyond the fence are cut off (not drawn, cannot be
+// hovered, counted in the note below the chart).
 function axisRange(ys) {
   if (!ys.length) return { min: 0, max: Y_LIMIT };
-  let lo = Infinity, hi = -Infinity;
-  for (const y of ys) { if (y < lo) lo = y; if (y > hi) hi = y; }
-  const max = hi > 0 ? Math.min(Y_LIMIT, Math.ceil((hi * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
-  const min = lo < 0 ? Math.max(-Y_LIMIT, Math.floor((lo * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
+  const sorted = Float64Array.from(ys).sort();
+  let lo = sorted[0], hi = sorted[sorted.length - 1];
+  let hiFence = Infinity, loFence = -Infinity;
+  if (sorted.length >= Y_FENCE_MIN_OBS) {
+    const q1 = quantile(sorted, 0.25), q3 = quantile(sorted, 0.75);
+    const iqr = q3 - q1;
+    if (iqr > 0) {
+      hiFence = q3 + Y_FENCE * iqr;
+      loFence = q1 - Y_FENCE * iqr;
+    }
+  }
+  const up = (v) => Math.ceil((v * Y_PAD) / Y_ROUND) * Y_ROUND;
+  const down = (v) => Math.floor((v * Y_PAD) / Y_ROUND) * Y_ROUND;
+  let max = 0, min = 0;
+  if (hi > Y_LIMIT) {
+    hi = Math.min(hi, Math.max(Y_LIMIT, hiFence));
+    max = hi > Y_LIMIT ? up(hi) : Y_LIMIT;
+  } else if (hi > 0) {
+    max = Math.min(Y_LIMIT, up(hi));
+  }
+  if (lo < -Y_LIMIT) {
+    lo = Math.max(lo, Math.min(-Y_LIMIT, loFence));
+    min = lo < -Y_LIMIT ? down(lo) : -Y_LIMIT;
+  } else if (lo < 0) {
+    min = Math.max(-Y_LIMIT, down(lo));
+  }
   return { min, max: max > min ? max : min + Y_ROUND };
 }
 
@@ -594,6 +654,7 @@ function revealChart() {
 
 function resetChart(startDate, endDate, band) {
   series = [];
+  $('axisNote').hidden = true;
   // drop any hovered point of the previous location: its index may not exist
   // in the new data
   chart.setActiveElements([]);
