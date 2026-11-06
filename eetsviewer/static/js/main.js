@@ -763,7 +763,7 @@ function selectLocation(latlng, { pan = false } = {}) {
 
 map.on('click', (e) => selectLocation(e.latlng));
 
-// Manual coordinate entry: "Go to" button or Enter in either field.
+// Manual coordinate entry: the "Go to" button pins the typed location.
 // Pasting "lat,lng" (e.g. 52.11354,8.27282) into either field fills both.
 function splitPair(input) {
   const parts = input.value.split(/[,;\s]+/).filter(Boolean);
@@ -819,6 +819,21 @@ $('getData').addEventListener('click', () => {
     }
   }
   startJob(false);
+});
+
+// Enter anywhere on the page acts like clicking "View time series".
+// Enter on a focused button or link keeps its own action, and the "Go to"
+// button still only pins the location. Enter in the lat/lng fields now
+// starts the extraction (it pins the typed coordinates first).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.repeat || e.isComposing) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const t = e.target;
+  if (t instanceof Element) {
+    if (t.closest('button, a[href], textarea, summary, [contenteditable=""], [contenteditable="true"], #map')) return;
+  }
+  e.preventDefault(); // stops the coordinate form's implicit "Go to" submit
+  $('getData').click();
 });
 
 // redraw the line in the chosen mode; no new extraction needed
