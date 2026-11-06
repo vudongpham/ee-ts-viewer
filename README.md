@@ -4,14 +4,22 @@ Web app for viewing Landsat, Sentinel-2 and HLS time series at any location on E
 
 ## Installation
 
+**New to Earth Engine, or stuck at the login step** (e.g. *"Project has an incompatible OAuth2 Client configuration"*)? Follow the step-by-step [installation guide](INSTALL.md).
+
 ### 1. Earth Engine access
-You need a Google Cloud project [registered for Earth Engine](https://code.earthengine.google.com/register) (free for non-commercial use). Log in once with your Google account; the credentials are saved in `~/.config/earthengine`:
+You need a Google Cloud project [registered for Earth Engine](https://code.earthengine.google.com/register) (free for non-commercial use). Log in once with your Google account; the credentials are saved in `~/.config/earthengine`. The simplest way is on your own computer, with Python:
+```
+pip install earthengine-api
+earthengine authenticate --auth_mode=localhost
+```
+or, with Docker only:
 ```
 docker run -it --rm \
   -v ~/.config/earthengine:/root/.config/earthengine \
   vudongpham/eetsviewer earthengine authenticate --auth_mode=notebook
 ```
-Alternatively, use a service account JSON key (see *Options*).
+If the Docker login fails with *"incompatible OAuth2 Client configuration"*, choose a different (e.g. new, empty) project on the authenticator page, or use the Python login above; see the [guide](INSTALL.md#project-has-an-incompatible-oauth2-client-configuration).
+Alternatively, use a service account JSON key (see *Options* and the [guide](INSTALL.md#option-c--service-account-key)).
 
 ### 2. Pull the image
 ```
