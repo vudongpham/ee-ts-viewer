@@ -16,6 +16,10 @@
  * last observation: the series is copied N calendar years back and forward
  * (extendPeriodic), the line is computed on the extended series and cut at
  * the start and end dates (clipCurve, or the `from` / `to` options).
+ * The two gaps where the copies meet the real series (the ones that contain
+ * the start or the end date, e.g. a winter, or the months after today when
+ * the end date lies in the future) are always bridged, so the adaptive lines
+ * reach both dates too (bridgeSeams); long gaps inside the range are not.
  *
  * Works in the browser (window.Smoothing) and in Node (module.exports), so
  * it can be tested outside the browser.
@@ -132,11 +136,16 @@
   }
 
   // evaluation days: from opts.from to opts.to (ms) when given, otherwise
-  // from the first to the last observation
+  // from the first to the last observation. With from / to the grid also
+  // reaches the nearest observation outside them (a copy of the extended
+  // series), so the curve exists on both sides of the seams.
   function grid(t, opts) {
-    return opts.from != null && opts.to != null
-      ? dayGrid(opts.from / DAY_MS, opts.to / DAY_MS)
-      : dayGrid(t[0], t[t.length - 1]);
+    if (opts.from == null || opts.to == null) return dayGrid(t[0], t[t.length - 1]);
+    const f = opts.from / DAY_MS, l = opts.to / DAY_MS;
+    const i = lowerBound(t, f), j = lowerBound(t, l + 1e-9);
+    const t0 = i > 0 ? Math.min(f, t[i - 1]) : f;
+    const t1 = j < t.length ? Math.max(l, t[j]) : l;
+    return dayGrid(t0, t1);
   }
 
   // regular grid of days from the first to the last observation
@@ -192,10 +201,55 @@
     return t[i] - t[i - 1] > limit;
   }
 
-  // set the curve to null inside long gaps
-  function breakGaps(data, t, dt) {
+  // the gaps (between consecutive observations, in days) that contain the
+  // start or the end date: there the copies of the extended series meet the
+  // real observations
+  function seamGaps(t, opts) {
+    if (opts.from == null || opts.to == null) return [];
+    const gaps = [];
+    for (const day of [opts.from / DAY_MS, opts.to / DAY_MS]) {
+      const i = lowerBound(t, day);
+      if (i > 0 && i < t.length && t[i] !== day) gaps.push([t[i - 1], t[i]]);
+    }
+    return gaps;
+  }
+
+  // set the curve to null inside long gaps, except in the seam gaps; with
+  // from / to the result is cut exactly at both dates
+  function breakGaps(data, t, dt, opts = {}) {
     const limit = gapLimit(dt);
-    return data.map((p) => (inGap(t, p.x / DAY_MS, limit) ? { x: p.x, y: null } : p));
+    const seams = seamGaps(t, opts);
+    const inSeam = (day) => seams.some(([a, b]) => day > a && day < b);
+    const res = bridgeSeams(data.map((p) => {
+      const day = p.x / DAY_MS;
+      return inGap(t, day, limit) && !inSeam(day) ? { x: p.x, y: null } : p;
+    }), seams);
+    return opts.from != null && opts.to != null ? clipCurve(res, opts.from, opts.to) : res;
+  }
+
+  // inside the seam gaps the local fits / kernels can still be empty (no
+  // observation within their window): there the curve is joined linearly
+  // between its nearest values on both sides, so it always reaches the start
+  // and end dates
+  function bridgeSeams(data, seams) {
+    if (!seams.length) return data;
+    const res = data.slice();
+    for (const [a, b] of seams) {
+      for (let i = 0; i < res.length; i++) {
+        const day = res[i].x / DAY_MS;
+        if (res[i].y != null || day <= a || day >= b) continue;
+        let l = i - 1, r = i + 1;
+        while (l >= 0 && res[l].y == null) l--;
+        while (r < res.length && res[r].y == null) r++;
+        if (l < 0 && r >= res.length) continue;
+        let y;
+        if (l < 0) y = res[r].y;
+        else if (r >= res.length) y = res[l].y;
+        else y = res[l].y + (res[r].y - res[l].y) * (res[i].x - res[l].x) / (res[r].x - res[l].x);
+        res[i] = { x: res[i].x, y: Math.round(y) };
+      }
+    }
+    return res;
   }
 
   const out = (day, y) => ({ x: day * DAY_MS, y: y == null || !Number.isFinite(y) ? null : Math.round(y) });
@@ -298,7 +352,7 @@
       }
     }
     const data = grid(t, cfg).map((g) => out(g, localFit(t, y, rw, g, k, hMin, hMax, maxDeg)));
-    return { data: breakGaps(data, t, dt), params: { k, robust, spacing: dt, hMin, hMax, gap: gapLimit(dt) } };
+    return { data: breakGaps(data, t, dt, cfg), params: { k, robust, spacing: dt, hMin, hMax, gap: gapLimit(dt) } };
   }
 
   // Adaptive moving average: robust tricube-weighted mean
@@ -402,7 +456,7 @@
                                              minMass: opts.minMass == null ? 0.5 : opts.minMass,
                                              from: opts.from, to: opts.to })
       .map((p) => out(p.x / DAY_MS, p.y));
-    return { data: breakGaps(data, t, dt), params: { sigmas, spacing: dt, gap: gapLimit(dt) } };
+    return { data: breakGaps(data, t, dt, opts), params: { sigmas, spacing: dt, gap: gapLimit(dt) } };
   }
 
   const api = {

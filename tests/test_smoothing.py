@@ -231,3 +231,37 @@ def test_lines_span_the_whole_date_range():
     (lin,) = run(ext["x"], ext["y"], ("clipCurve", from_, to))
     assert lin["x"][0] == day("2018-01-01") and lin["x"][-1] == day("2020-12-31")
     assert not np.isnan(lin["y"]).any()
+
+
+def _null_at(r, date):
+    return bool(np.isnan(r["y"][int(np.argmin(np.abs(np.asarray(r["x"]) - day(date))))]))
+
+
+def test_lines_reach_both_dates_across_winter_seams():
+    # April-October only: the seams with the copies (Nov-Mar) are longer than
+    # the gap limit, but the lines must still have values at both dates;
+    # the winters inside the range stay broken
+    days = np.array([d for d in np.arange(day("2018-04-05"), day("2020-10-25"), 5)
+                     if 90 <= (d - day("2018-01-01")) % 365.25 <= 300])
+    _, y, _ = seasonal(days, noise=100)
+    from_, to = ms("2018-01-01"), ms("2020-12-31")
+    (ext,) = run(days, y, ("extendPeriodic", from_, to))
+    rng = {"from": from_, "to": to}
+    for r in run(ext["x"], ext["y"], ("movingAverage", rng), ("savitzkyGolay", rng), ("rbf", rng)):
+        assert not _null_at(r, "2018-01-01") and not _null_at(r, "2020-12-31")
+        assert not _null_at(r, "2018-02-15") and not _null_at(r, "2020-12-01")
+        assert _null_at(r, "2019-01-15")          # winter inside the range
+
+
+def test_lines_reach_an_end_date_in_the_future():
+    # range 2026-01-01 .. 2026-12-31 with data only mid-Feb .. early Nov
+    # (the rest is not available yet): the copies of 2026 in 2025 and 2027
+    # fill both ends
+    days = np.arange(day("2026-02-14"), day("2026-11-05"), 5).astype(float)
+    _, y, _ = seasonal(days, noise=50)
+    from_, to = ms("2026-01-01"), ms("2026-12-31")
+    (ext,) = run(days, y, ("extendPeriodic", from_, to))
+    rng = {"from": from_, "to": to}
+    for r in run(ext["x"], ext["y"], ("movingAverage", rng), ("savitzkyGolay", rng), ("rbf", rng)):
+        assert r["x"][0] == day("2026-01-01") and r["x"][-1] == day("2026-12-31")
+        assert not np.isnan(r["y"]).any()
