@@ -1,6 +1,8 @@
 # EE Time-Series Viewer
 
 Web app for viewing Landsat, Sentinel-2 and HLS time series at any location on Earth. The data come from Google Earth Engine and are extracted and cloud-masked on the fly; no local data are needed.
+<img width="1882" height="905" alt="ee" src="https://github.com/user-attachments/assets/366d1aa5-d338-4d3c-9bf6-f478a238704d" />
+
 
 ## Installation
 
