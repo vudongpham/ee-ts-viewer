@@ -381,6 +381,14 @@ function insertSorted(points) {
 // ---------------------------------------------------------------------------
 // Line modes: how the line through the observations is drawn. All are O(n)
 // on the already sorted series, so switching is instant.
+//
+// Every line spans the whole selected date range (start to end date), not
+// only the first to the last clear observation: the series is copied N
+// calendar years back and forward (N = length of the date range rounded up
+// to whole years, e.g. a 2018-2020 series gets copies in 2015-2017 and
+// 2021-2023), the line is computed on the extended series and cut at the
+// start and end dates (see Smoothing.extendPeriodic). Only the real
+// observations are drawn as points and exported.
 // ---------------------------------------------------------------------------
 
 // The moving average, Savitzky–Golay and RBF lines are adaptive: their
@@ -399,14 +407,15 @@ function adaptiveMode(fit, describe) {
 //   y = c0 + c1 cos(wt) + c2 sin(wt) + c3 t            (basic)
 //       + c4 cos(2wt) + c5 sin(2wt)                     (advanced)
 //       + c6 cos(3wt) + c7 sin(3wt)                     (full)
-// with w = 2*pi / 365.25 and t in days. Fitted by least squares on all
-// observations and evaluated on a daily grid between the first and last one.
+// with w = 2*pi / 365.25 and t in days. Fitted by least squares on the
+// extended series (observations and their copies) and evaluated on a daily
+// grid from the start to the end date.
 const HARMONIC_T = 365.25;
 const HARMONIC_ORDERS = { basic: 1, advanced: 2, full: 3 };
 const HARMONIC_MAX_SAMPLES = 2000;   // max evaluation points (keeps long series fast)
 
 function harmonicRow(t, nHarm) {
-  // t is in days relative to the first observation (better conditioning than
+  // t is in days relative to the start date (better conditioning than
   // days since 1970; the shift is absorbed by the intercept and the phases).
   // The trend column is in years so all columns have similar magnitude; this
   // only rescales its coefficient, the fitted curve is identical.
@@ -416,13 +425,13 @@ function harmonicRow(t, nHarm) {
   return row;
 }
 
-function harmonicFit(pts, model) {
+function harmonicFit(pts, model, range) {
   const n = pts.length;
   const nHarm = HARMONIC_ORDERS[model];
   const m = 2 + 2 * nHarm;            // number of coefficients
   if (n < m) return null;             // under-determined: not enough observations
 
-  const t0 = pts[0].x;
+  const t0 = range.from;
   const A = Array.from({ length: m }, () => new Float64Array(m));
   const b = new Float64Array(m);
   for (const p of pts) {
@@ -436,15 +445,17 @@ function harmonicFit(pts, model) {
   const c = solve(A, b);
   if (!c || !c.every(Number.isFinite)) return null;
 
-  const spanDays = (pts[n - 1].x - t0) / DAY_MS;
+  const spanDays = (range.to - t0) / DAY_MS;
   const step = Math.max(1, Math.ceil(spanDays / HARMONIC_MAX_SAMPLES));
-  const out = [];
-  for (let d = 0; d <= spanDays; d += step) {
+  const value = (d) => {
     const r = harmonicRow(d, nHarm);
     let y = 0;
     for (let i = 0; i < m; i++) y += c[i] * r[i];
-    out.push({ x: t0 + d * DAY_MS, y: Math.round(y) });
-  }
+    return { x: t0 + d * DAY_MS, y: Math.round(y) };
+  };
+  const out = [];
+  for (let d = 0; d <= spanDays; d += step) out.push(value(d));
+  if (out[out.length - 1].x < range.to) out.push(value(spanDays));   // end exactly at the end date
   return out;
 }
 
@@ -452,25 +463,38 @@ function harmonicMode(model, label) {
   return {
     label,
     tension: 0,
-    data: (pts) => harmonicFit(pts, model) || [],
+    data: (ext, range) => harmonicFit(ext, model, range) || [],
     // shown in the status line when the fit is not possible
     minObs: 2 + 2 * HARMONIC_ORDERS[model],
   };
 }
 
+// the observations within the range plus `k` on each side beyond it: the
+// chart cuts the line off at the axis (= start and end date), and the
+// points beyond give the monotone cubic its proper shape at both ends
+function withMargin(pts, range, k) {
+  let lo = pts.findIndex((p) => p.x >= range.from);
+  if (lo < 0) lo = pts.length;
+  let hi = pts.length;
+  while (hi > 0 && pts[hi - 1].x > range.to) hi--;
+  return pts.slice(Math.max(0, lo - k), Math.min(pts.length, hi + k));
+}
+
 const LINE_MODES = {
-  linear: { label: 'Linear interpolation', tension: 0, data: (pts) => pts.slice() },
+  linear: { label: 'Linear interpolation', tension: 0,
+            data: (ext, range) => Smoothing.clipCurve(ext, range.from, range.to) },
   // Chart.js monotone cubic interpolation: smooth, passes through every
   // observation and never overshoots between them
-  spline: { label: 'Spline (monotone cubic)', cubic: 'monotone', data: (pts) => pts.slice() },
+  spline: { label: 'Spline (monotone cubic)', cubic: 'monotone',
+            data: (ext, range) => withMargin(ext, range, 2) },
   movavg: adaptiveMode(
-    (pts) => Smoothing.movingAverage(pts),
+    (ext, range) => Smoothing.movingAverage(ext, range),
     (p) => `Moving average (adaptive: window ±${days(p.hMin)}–${days(p.hMax)})`),
   savgol: adaptiveMode(
-    (pts) => Smoothing.savitzkyGolay(pts),
+    (ext, range) => Smoothing.savitzkyGolay(ext, range),
     (p) => `Savitzky–Golay (adaptive, robust: window ±${days(p.hMin)}–${days(p.hMax)})`),
   rbf: adaptiveMode(
-    (pts) => Smoothing.rbf(pts),
+    (ext, range) => Smoothing.rbf(ext, range),
     (p) => `RBF ensemble (σ = ${p.sigmas.join('/')} d)`),
   harmBasic:    harmonicMode('basic', 'Harmonic basic'),
   harmAdvanced: harmonicMode('advanced', 'Harmonic advanced'),
@@ -478,19 +502,34 @@ const LINE_MODES = {
   none:   { label: 'Line', tension: 0, data: () => [] },
 };
 
+// date range of the current job (ms, UTC days like the observations); the
+// lines are drawn from `from` to `to`
+let lineRange = null;
+
+function currentRange() {
+  if (lineRange) return lineRange;
+  return series.length ? { from: series[0].x, to: series[series.length - 1].x } : null;
+}
+
 function applyLineMode(ds) {
   const key = $('lineMode').value;
   const mode = LINE_MODES[key] || LINE_MODES.linear;
   ds.cubicInterpolationMode = mode.cubic || 'default';
   ds.tension = mode.tension || 0;
+  const range = currentRange();
+  // observations with their copies before and after the date range
+  const ext = range ? Smoothing.extendPeriodic(series, range.from, range.to) : [];
+  // the minimum number of observations counts the real ones only
+  const minObs = mode.adaptive ? 3 : mode.minObs || 1;
+  const enough = series.length >= minObs;
   if (mode.adaptive) {
     // the curve has null values in gaps: the line is broken there
-    const { data, params } = mode.fit(series);
-    ds.data = data;
+    const { data, params } = enough ? mode.fit(ext, range) : { data: [], params: null };
+    ds.data = Smoothing.clipCurve(data, range ? range.from : 0, range ? range.to : 0);
     ds.label = params ? mode.describe(params) : 'Line (needs ≥ 3 obs.)';
   } else {
     ds.label = mode.label;
-    ds.data = mode.data(series);
+    ds.data = enough ? mode.data(ext, range) : [];
     if (mode.minObs && series.length && !ds.data.length) {
       ds.label += ` (needs ≥ ${mode.minObs} obs.)`;
     }
@@ -560,6 +599,7 @@ function resetChart(startDate, endDate, band) {
   const o = chart.options.scales;
   o.x.min = startDate;
   o.x.max = endDate;
+  lineRange = { from: Date.parse(startDate), to: Date.parse(endDate) };
   const name = BAND_TITLES[band] || band;
   o.y.title.text = INDEX_BANDS.has(band) ? `${name} × 10000` : `${name} reflectance × 10000`;
   showChart(false);

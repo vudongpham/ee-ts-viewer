@@ -12,6 +12,11 @@
  * dense Sentinel-2 + Landsat series is smoothed with short windows, a sparse
  * Landsat 5 series with longer ones, and a winter gap is not bridged.
  *
+ * All lines span the whole selected date range, not only the first to the
+ * last observation: the series is copied N calendar years back and forward
+ * (extendPeriodic), the line is computed on the extended series and cut at
+ * the start and end dates (clipCurve, or the `from` / `to` options).
+ *
  * Works in the browser (window.Smoothing) and in Node (module.exports), so
  * it can be tested outside the browser.
  */
@@ -23,6 +28,64 @@
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const tricube = (u) => { const a = 1 - Math.abs(u) ** 3; return a > 0 ? a * a * a : 0; };
+
+  // ------------------------------------------------------------------------
+  // Periodic extension: copies of the series before and after it
+  // ------------------------------------------------------------------------
+
+  // `ms` moved by `n` calendar years (UTC). Leap years are respected: the
+  // day of the year stays the same, and 29 February becomes 28 February in
+  // a year without it.
+  function shiftYears(ms, n) {
+    const d = new Date(ms);
+    const y = d.getUTCFullYear(), m = d.getUTCMonth(), day = d.getUTCDate();
+    const timeOfDay = ms - Date.UTC(y, m, day);
+    const last = new Date(Date.UTC(y + n, m + 1, 0)).getUTCDate();
+    return Date.UTC(y + n, m, Math.min(day, last)) + timeOfDay;
+  }
+
+  // smallest number of whole years N with from + N years > to, i.e. the
+  // length of the date range rounded up to whole years (at least 1):
+  // 2018-01-01 .. 2020-12-31 -> 3
+  function yearsCovering(from, to) {
+    let n = 1;
+    while (shiftYears(from, n) <= to) n++;
+    return n;
+  }
+
+  // The observations (all inside from .. to) with a copy of the whole
+  // series N years earlier and one N years later (N = yearsCovering), e.g.
+  // a 2018-2020 series gets copies in 2015-2017 and 2021-2023. The copies
+  // fall entirely before `from` and after `to`, so lines computed on the
+  // extended series reach both ends of the date range. Sorted by x.
+  function extendPeriodic(pts, from, to) {
+    if (!pts.length) return [];
+    const n = yearsCovering(from, to);
+    const copy = (k) => pts.map((p) => ({ x: shiftYears(p.x, k), y: p.y }));
+    return [...copy(-n), ...pts.map((p) => ({ x: p.x, y: p.y })), ...copy(n)]
+      .sort((a, b) => a.x - b.x);
+  }
+
+  // the part of a curve (sorted by x) between from and to, with points
+  // linearly interpolated exactly at both ends (null if a neighbour is null)
+  function clipCurve(data, from, to) {
+    const at = (a, b, x) => {
+      if (a.y == null || b.y == null) return { x, y: null };
+      return { x, y: b.x === a.x ? a.y : a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x) };
+    };
+    const res = [];
+    for (let i = 0; i < data.length; i++) {
+      const p = data[i], prev = data[i - 1];
+      if (p.x < from) continue;
+      if (p.x > to) {
+        if (prev && prev.x < to) res.push(at(prev, p, to));
+        break;
+      }
+      if (!res.length && prev && p.x > from) res.push(at(prev, p, from));
+      res.push(p);
+    }
+    return res;
+  }
 
   // ------------------------------------------------------------------------
   // helpers
@@ -66,6 +129,14 @@
       if (dl <= dr) { d = dl; l--; } else { d = dr; r++; }
     }
     return d;
+  }
+
+  // evaluation days: from opts.from to opts.to (ms) when given, otherwise
+  // from the first to the last observation
+  function grid(t, opts) {
+    return opts.from != null && opts.to != null
+      ? dayGrid(opts.from / DAY_MS, opts.to / DAY_MS)
+      : dayGrid(t[0], t[t.length - 1]);
   }
 
   // regular grid of days from the first to the last observation
@@ -226,7 +297,7 @@
         rw[i] = Math.abs(u) < 1 ? (1 - u * u) ** 2 : 0;
       }
     }
-    const data = dayGrid(t[0], t[n - 1]).map((g) => out(g, localFit(t, y, rw, g, k, hMin, hMax, maxDeg)));
+    const data = grid(t, cfg).map((g) => out(g, localFit(t, y, rw, g, k, hMin, hMax, maxDeg)));
     return { data: breakGaps(data, t, dt), params: { k, robust, spacing: dt, hMin, hMax, gap: gapLimit(dt) } };
   }
 
@@ -236,6 +307,7 @@
       k: opts.k || MA_DEFAULTS.k, maxDeg: 0,
       robust: opts.robust == null ? MA_DEFAULTS.robust : opts.robust,
       hMin: opts.hMin || MA_DEFAULTS.hMin, hMax: opts.hMax || MA_DEFAULTS.hMax,
+      from: opts.from, to: opts.to,
     });
   }
 
@@ -245,6 +317,7 @@
       k: opts.k || SG_DEFAULTS.k, maxDeg: opts.degree == null ? 2 : opts.degree,
       robust: opts.robust == null ? SG_DEFAULTS.robust : opts.robust,
       hMin: opts.hMin || SG_DEFAULTS.hMin, hMax: opts.hMax || SG_DEFAULTS.hMax,
+      from: opts.from, to: opts.to,
     });
   }
 
@@ -290,10 +363,10 @@
     if (!n) return [];
     const step = opts.step;
     // same grid as numpy.arange(min, max + step, step) when a step is given
-    const grid = [];
-    if (step) for (let d = t[0]; d < t[n - 1] + step - 1e-9; d += step) grid.push(d);
-    else grid.push(...dayGrid(t[0], t[n - 1]));
-    return grid.map((g) => {
+    const days = [];
+    if (step) for (let d = t[0]; d < t[n - 1] + step - 1e-9; d += step) days.push(d);
+    else days.push(...grid(t, opts));
+    return days.map((g) => {
       let num = 0, den = 0;
       for (const sigma of sigmas) {
         const lo = lowerBound(t, g - 3 * sigma);
@@ -326,13 +399,14 @@
     const sigmas = [...new Set((opts.factors || RBF_FACTORS)
       .map((f) => Math.round(clamp(f * dt, 6, 90))))];
     const data = rbfEnsemble(pts, sigmas, { weighting: opts.weighting || 'density',
-                                             minMass: opts.minMass == null ? 0.5 : opts.minMass })
+                                             minMass: opts.minMass == null ? 0.5 : opts.minMass,
+                                             from: opts.from, to: opts.to })
       .map((p) => out(p.x / DAY_MS, p.y));
     return { data: breakGaps(data, t, dt), params: { sigmas, spacing: dt, gap: gapLimit(dt) } };
   }
 
   const api = {
-    DAY_MS, medianSpacing, kthDistance, solve, MA_DEFAULTS, SG_DEFAULTS,
+    DAY_MS, shiftYears, yearsCovering, extendPeriodic, clipCurve, medianSpacing, kthDistance, solve, MA_DEFAULTS, SG_DEFAULTS,
     movingAverage, savitzkyGolay, rbfEnsemble, rbf,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

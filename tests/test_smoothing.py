@@ -21,6 +21,8 @@ def run(x, y, *calls):
                          text=True, check=True)
     res = json.loads(out.stdout)
     for r in res:
+        if "curve" not in r:
+            continue
         r["x"] = np.array(r["curve"]["x"])
         r["y"] = np.array([np.nan if v is None else v for v in r["curve"]["y"]], dtype=float)
     return res
@@ -156,3 +158,76 @@ def test_savitzky_golay_resists_cloud_outliers():
     bias = lambda r: np.nanmean(r["y"] - truth)
     assert abs(bias(robust)) < 0.5 * abs(bias(plain))
     assert abs(bias(robust)) < 120
+
+
+# ---------------------------------------------------------------------------
+# lines over the whole date range: copies of the series before and after it
+# ---------------------------------------------------------------------------
+
+DAY_MS = 86400000
+
+
+def ms(date):
+    return float(np.datetime64(date, "ms").astype(np.int64))
+
+
+def day(date):
+    return ms(date) / DAY_MS
+
+
+def raw(*calls):
+    req = {"x": [], "y": [], "calls": [{"fn": fn, "args": list(args), "raw": True}
+                                       for fn, *args in calls]}
+    out = subprocess.run([NODE, str(RUNNER)], input=json.dumps(req), capture_output=True,
+                         text=True, check=True)
+    return [r["value"] for r in json.loads(out.stdout)]
+
+
+def test_shift_by_calendar_years_with_leap_days():
+    shifted = raw(("shiftYears", ms("2018-03-15"), -3), ("shiftYears", ms("2018-03-15"), 3),
+                  ("shiftYears", ms("2020-02-29"), 1), ("shiftYears", ms("2019-12-31"), 1),
+                  ("shiftYears", ms("2019-03-01"), 1))
+    assert shifted == [ms("2015-03-15"), ms("2021-03-15"), ms("2021-02-28"),
+                       ms("2020-12-31"), ms("2020-03-01")]
+
+
+def test_years_covering_the_date_range():
+    assert raw(("yearsCovering", ms("2018-01-01"), ms("2020-12-31")),
+               ("yearsCovering", ms("2018-01-01"), ms("2021-01-01")),
+               ("yearsCovering", ms("2018-04-01"), ms("2018-09-30")),
+               ("yearsCovering", ms("2018-04-01"), ms("2019-03-31"))) == [3, 4, 1, 1]
+
+
+def test_series_is_copied_back_and_forward():
+    # a 2018-2020 series gets copies in 2015-2017 and 2021-2023
+    dates = ["2018-02-10", "2019-07-01", "2020-02-29", "2020-11-20"]
+    x = [day(d) for d in dates]
+    y = [100, 200, 300, 400]
+    (r,) = run(x, y, ("extendPeriodic", ms("2018-01-01"), ms("2020-12-31")))
+    expected = ([day(d) for d in ["2015-02-10", "2016-07-01", "2017-02-28", "2017-11-20"]]
+                + x + [day(d) for d in ["2021-02-10", "2022-07-01", "2023-02-28", "2023-11-20"]])
+    assert list(r["x"]) == expected
+    assert list(r["y"]) == y * 3
+
+
+def test_clip_interpolates_at_both_ends():
+    (r,) = run([10, 20, 30, 40], [0, 100, 200, 300], ("clipCurve", 15 * DAY_MS, 35 * DAY_MS))
+    assert list(r["x"]) == [15, 20, 30, 35]
+    assert list(r["y"]) == [50, 100, 200, 250]
+
+
+def test_lines_span_the_whole_date_range():
+    # observations only from April to October; the line must still reach the
+    # start (1 Jan) and end date (31 Dec) of each year of the range
+    days = np.array([d for d in np.arange(day("2018-04-05"), day("2020-10-25"), 5)
+                     if 90 <= (d - day("2018-01-01")) % 365.25 <= 300])
+    _, y, _ = seasonal(days, noise=100)
+    from_, to = ms("2018-01-01"), ms("2020-12-31")
+    (ext,) = run(days, y, ("extendPeriodic", from_, to))
+    rng = {"from": from_, "to": to}
+    for r in run(ext["x"], ext["y"], ("movingAverage", rng), ("savitzkyGolay", rng), ("rbf", rng)):
+        assert r["x"][0] == day("2018-01-01") and r["x"][-1] == day("2020-12-31")
+    # linear interpolation over the copies, cut at the start and end date
+    (lin,) = run(ext["x"], ext["y"], ("clipCurve", from_, to))
+    assert lin["x"][0] == day("2018-01-01") and lin["x"][-1] == day("2020-12-31")
+    assert not np.isnan(lin["y"]).any()
