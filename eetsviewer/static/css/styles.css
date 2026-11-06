@@ -351,6 +351,50 @@ input.coord.invalid {
 
 #myChart { cursor: pointer; }
 
+/* manual y axis range (below the chart title) */
+.y-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 4px 2px;
+}
+
+.y-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+.y-field input {
+  box-sizing: border-box;
+  width: 96px;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: #fff;
+  font: 13px var(--font);
+  color: var(--text);
+}
+
+.y-field input:focus-visible {
+  outline: 2px solid rgba(33, 113, 181, 0.45);
+  outline-offset: 1px;
+}
+
+.y-field input.invalid { border-color: var(--danger); }
+
+#yAxisButton[aria-expanded="true"] { background: #e8f0f9; }
+
+.y-msg {
+  color: var(--danger);
+  font-size: 12px;
+}
+
 /* values cut off by the y axis (outliers) */
 .chart-note {
   margin: 4px 4px 0;

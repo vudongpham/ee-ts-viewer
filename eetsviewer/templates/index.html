@@ -145,9 +145,17 @@
         <div class="chart-head">
           <h2 class="card-title">Time series</h2>
           <div class="chart-tools">
+            <button id="yAxisButton" class="btn btn-ghost btn-small" aria-expanded="false" aria-controls="yRange" title="Set the minimum and maximum of the y axis"><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v18M3 6l3-3 3 3M3 18l3 3 3-3M12 8h9M12 16h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Y axis</button>
             <button id="savePng" class="btn btn-ghost btn-small copybutton" title="Save the graph as a PNG image (white background, 2 × resolution)"><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>PNG</button>
             <button id="saveJpeg" class="btn btn-ghost btn-small copybutton" title="Save the graph as a JPEG image (white background, 2 × resolution)"><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>JPEG</button>
           </div>
+        </div>
+        <!-- manual y axis range; an empty box keeps the automatic value -->
+        <div id="yRange" class="y-range" hidden>
+          <label class="y-field" for="yMin"><span>Y min</span><input type="number" id="yMin" step="any" placeholder="auto" autocomplete="off" title="Leave empty for the automatic value"></label>
+          <label class="y-field" for="yMax"><span>Y max</span><input type="number" id="yMax" step="any" placeholder="auto" autocomplete="off" title="Leave empty for the automatic value"></label>
+          <button id="yAuto" class="btn btn-ghost btn-small" title="Back to the automatic y axis range">Auto</button>
+          <span id="yRangeMsg" class="y-msg" aria-live="polite"></span>
         </div>
         <!-- fixed-height box used only by the chart (Chart.js sizes the canvas to it) -->
         <div class="chart-box"><canvas id="myChart"></canvas></div>
