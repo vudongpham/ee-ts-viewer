@@ -222,6 +222,8 @@ async function showOverlay(p) {
 // (Landsat, Sentinel-2) and never the line: with dense lines (harmonic fits,
 // moving average) the line would otherwise almost always be the nearest
 // element, leaving the tooltip with nothing to show.
+// The nearest observation is the one closest to the mouse in screen pixels
+// (straight-line distance in x and y), not just the closest date.
 const LINE_DS = 4;
 const HLS_DS = [2, 3];       // datasets of the harmonized group
 Chart.Interaction.modes.nearestObservation = (chart, e) => {
@@ -233,7 +235,7 @@ Chart.Interaction.modes.nearestObservation = (chart, e) => {
       if (!el || el.skip) return;
       const area = chart.chartArea;
       if (el.y < area.top || el.y > area.bottom) return;   // cut off: not visible
-      const d = Math.abs(el.x - pos.x);
+      const d = Math.hypot(el.x - pos.x, el.y - pos.y);
       if (d < bestDist) { bestDist = d; best = [{ element: el, datasetIndex: di, index }]; }
       else if (d === bestDist) best.push({ element: el, datasetIndex: di, index });
     });
@@ -822,15 +824,26 @@ $('getData').addEventListener('click', () => {
 });
 
 // Enter anywhere on the page acts like clicking "View time series".
-// Enter on a focused button or link keeps its own action, and the "Go to"
-// button still only pins the location. Enter in the lat/lng fields now
-// starts the extraction (it pins the typed coordinates first).
+// A button or link reached with the keyboard (Tab) keeps its own Enter
+// action; one that only has focus because it was clicked with the mouse
+// (e.g. "Go to", "Copy dates") does not, so clicking around the panel and
+// then pressing Enter always starts the extraction. Enter in the lat/lng
+// fields pins the typed coordinates first (see the getData handler).
+// (:focus-visible cannot be used for this: the Enter press itself turns it on.)
+let focusFromPointer = false;
+document.addEventListener('pointerdown', () => { focusFromPointer = true; }, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') focusFromPointer = false;
+}, true);
+
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || e.repeat || e.isComposing) return;
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const t = e.target;
   if (t instanceof Element) {
-    if (t.closest('button, a[href], textarea, summary, [contenteditable=""], [contenteditable="true"], #map')) return;
+    if (t.closest('textarea, [contenteditable=""], [contenteditable="true"], #map')) return;
+    const control = t.closest('button, a[href], summary');
+    if (control && control.id !== 'getData' && !focusFromPointer) return;
   }
   e.preventDefault(); // stops the coordinate form's implicit "Go to" submit
   $('getData').click();
