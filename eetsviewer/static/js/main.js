@@ -6,7 +6,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const Y_LIMIT = 10000;
 const Y_PAD = 1.1;
 const Y_ROUND = 100;
-const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'TCB', 'TCG', 'TCW']);
+const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'MNDWI', 'AWEI', 'MSI', 'TCB', 'TCG', 'TCW']);
 const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
 const POLL_MS = 120;          // status poll interval while a job is running
 
@@ -763,7 +763,7 @@ function selectLocation(latlng, { pan = false } = {}) {
 
 map.on('click', (e) => selectLocation(e.latlng));
 
-// Manual coordinate entry: "Go to" button or Enter in either field.
+// Manual coordinate entry: the "Go to" button pins the typed location.
 // Pasting "lat,lng" (e.g. 52.11354,8.27282) into either field fills both.
 function splitPair(input) {
   const parts = input.value.split(/[,;\s]+/).filter(Boolean);
@@ -820,6 +820,29 @@ $('getData').addEventListener('click', () => {
   }
   startJob(false);
 });
+
+// Enter anywhere on the page acts like clicking "View time series".
+// Enter on a focused button or link keeps its own action, and the "Go to"
+// button still only pins the location. Enter in the lat/lng fields now
+// starts the extraction (it pins the typed coordinates first).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.repeat || e.isComposing) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const t = e.target;
+  if (t instanceof Element) {
+    if (t.closest('button, a[href], textarea, summary, [contenteditable=""], [contenteditable="true"], #map')) return;
+  }
+  e.preventDefault(); // stops the coordinate form's implicit "Go to" submit
+  $('getData').click();
+});
+
+// the band box is narrow: show the full name of the chosen band on hover
+function syncBandTitle() {
+  const sel = $('Bands');
+  sel.title = sel.options[sel.selectedIndex]?.text || '';
+}
+$('Bands').addEventListener('change', syncBandTitle);
+syncBandTitle();
 
 // redraw the line in the chosen mode; no new extraction needed
 $('lineMode').addEventListener('change', () => {

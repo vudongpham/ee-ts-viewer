@@ -18,6 +18,10 @@ def test_sentinel2_values_and_indices():
     assert S.compute_value("SEN2A", raw, "NBR") == 5000
     assert S.compute_value("SEN2A", raw, "NDMI") == 2000
     assert S.compute_value("SEN2A", raw, "NDWI") == round((800 - 3000) / 3800 * 10000)
+    assert S.compute_value("SEN2A", raw, "MNDWI") == round((800 - 2000) / 2800 * 10000)
+    assert S.compute_value("SEN2A", raw, "AWEI") == round(4 * (800 - 2000) - (0.25 * 3000 + 2.75 * 1000))
+    assert S.compute_value("SEN2A", raw, "MSI") == round(2000 / 3000 * 10000)
+    assert S.compute_value("SEN2A", {"NIR": 0, "SWIR1": 100}, "MSI") is None
     evi = 2.5 * (0.3 - 0.06) / (0.3 + 6 * 0.06 - 7.5 * 0.05 + 1) * 10000
     assert S.compute_value("SEN2A", raw, "EVI") == round(evi)
     assert S.compute_value("LND08", raw, "RE1") is None  # S2-only band
