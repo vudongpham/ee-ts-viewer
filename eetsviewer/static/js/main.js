@@ -2,16 +2,13 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // y axis: 110 % of the highest / lowest value (rounded outwards to 100),
-// ignoring outlier spikes beyond an outlier fence (see axisRange)
-const Y_DEFAULT_MAX = 10000;  // empty chart
-const Y_FENCE = 3;            // fence: quartiles -/+ 3 x interquartile range
-const Y_FENCE_MIN_OBS = 8;    // fewer observations: plain min / max
-const Y_PAD = 1.1;
-// bands whose values cannot leave +/-10000 (reflectance, normalized
-// differences, EVI): their axis is also capped there. MSI (a ratio), AWEI
-// and the Tasseled Cap components have no such bound.
+// within +/-10000 (reflectance / index x 10000). Only when values go beyond
+// +/-10000 does an outlier fence decide how far the axis extends (see
+// axisRange).
 const Y_LIMIT = 10000;
-const Y_UNBOUNDED = new Set(['MSI', 'AWEI', 'TCB', 'TCG', 'TCW']);
+const Y_FENCE = 3;            // fence: quartiles -/+ 3 x interquartile range
+const Y_FENCE_MIN_OBS = 8;    // fewer observations: no fence
+const Y_PAD = 1.1;
 const Y_ROUND = 100;
 const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'MNDWI', 'AWEI', 'MSI', 'TCB', 'TCG', 'TCW']);
 const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
@@ -514,8 +511,6 @@ const LINE_MODES = {
 // date range of the current job (ms, UTC days like the observations); the
 // lines are drawn from `from` to `to`
 let lineRange = null;
-// band of the current job (sets the y-axis cap, see axisRange)
-let chartBand = null;
 
 function currentRange() {
   if (lineRange) return lineRange;
@@ -567,7 +562,7 @@ function render() {
   for (let i = 0; i < LINE_DS; i++) chart.setDatasetVisibility(i, HLS_DS.includes(i) === harmonized);
   applyLineMode(ds[LINE_DS]);
 
-  const { min, max } = axisRange(series.map((p) => p.y), chartBand);
+  const { min, max } = axisRange(series.map((p) => p.y));
   chart.options.scales.y.min = min;
   chart.options.scales.y.max = max;
   showAxisNote(series, min, max);
@@ -601,31 +596,43 @@ function quantile(sorted, q) {
 }
 
 // Axis range: 0 .. 110 % of the highest value for positive data, down to
-// 110 % of the lowest value when there are negative values.
-// Outlier spikes (e.g. an undetected cloud in a reflectance band, or an
-// index with a tiny denominator) would squash the rest of the series, so the
-// highest / lowest value used is limited to an outlier fence (Tukey): the
-// 25th percentile - 3 x IQR and the 75th percentile + 3 x IQR, where IQR is
-// the interquartile range of all clear observations. All values within the
-// fence always fit (unlike a plain 95th percentile, which would always cut
-// off the top 5 %, e.g. the peak of every season); values beyond it are
-// cut off (not drawn, cannot be hovered). Bounded bands are also capped at
-// +/-10000 (Y_LIMIT).
-function axisRange(ys, band) {
-  if (!ys.length) return { min: 0, max: Y_DEFAULT_MAX };
+// 110 % of the lowest value when there are negative values, cut off at
+// +/-10000. Values within +/-10000 are therefore always shown.
+// Only when values go beyond +/-10000 (e.g. MSI, AWEI, or a spike from an
+// undetected cloud or a tiny index denominator) does the axis extend past
+// it, as far as the outlier fence (Tukey) allows: the 75th percentile
+// + 3 x IQR above, the 25th percentile - 3 x IQR below (IQR = interquartile
+// range of all clear observations). Regular values beyond +/-10000 are
+// shown; isolated spikes beyond the fence are cut off (not drawn, cannot be
+// hovered, counted in the note below the chart).
+function axisRange(ys) {
+  if (!ys.length) return { min: 0, max: Y_LIMIT };
   const sorted = Float64Array.from(ys).sort();
   let lo = sorted[0], hi = sorted[sorted.length - 1];
+  let hiFence = Infinity, loFence = -Infinity;
   if (sorted.length >= Y_FENCE_MIN_OBS) {
     const q1 = quantile(sorted, 0.25), q3 = quantile(sorted, 0.75);
     const iqr = q3 - q1;
     if (iqr > 0) {
-      hi = Math.min(hi, q3 + Y_FENCE * iqr);
-      lo = Math.max(lo, q1 - Y_FENCE * iqr);
+      hiFence = q3 + Y_FENCE * iqr;
+      loFence = q1 - Y_FENCE * iqr;
     }
   }
-  const limit = Y_UNBOUNDED.has(band) ? Infinity : Y_LIMIT;
-  const max = hi > 0 ? Math.min(limit, Math.ceil((hi * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
-  const min = lo < 0 ? Math.max(-limit, Math.floor((lo * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
+  const up = (v) => Math.ceil((v * Y_PAD) / Y_ROUND) * Y_ROUND;
+  const down = (v) => Math.floor((v * Y_PAD) / Y_ROUND) * Y_ROUND;
+  let max = 0, min = 0;
+  if (hi > Y_LIMIT) {
+    hi = Math.min(hi, Math.max(Y_LIMIT, hiFence));
+    max = hi > Y_LIMIT ? up(hi) : Y_LIMIT;
+  } else if (hi > 0) {
+    max = Math.min(Y_LIMIT, up(hi));
+  }
+  if (lo < -Y_LIMIT) {
+    lo = Math.max(lo, Math.min(-Y_LIMIT, loFence));
+    min = lo < -Y_LIMIT ? down(lo) : -Y_LIMIT;
+  } else if (lo < 0) {
+    min = Math.max(-Y_LIMIT, down(lo));
+  }
   return { min, max: max > min ? max : min + Y_ROUND };
 }
 
@@ -647,7 +654,6 @@ function revealChart() {
 
 function resetChart(startDate, endDate, band) {
   series = [];
-  chartBand = band;
   $('axisNote').hidden = true;
   // drop any hovered point of the previous location: its index may not exist
   // in the new data
