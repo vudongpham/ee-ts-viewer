@@ -562,16 +562,74 @@ function render() {
   for (let i = 0; i < LINE_DS; i++) chart.setDatasetVisibility(i, HLS_DS.includes(i) === harmonized);
   applyLineMode(ds[LINE_DS]);
 
-  const { min, max } = axisRange(series.map((p) => p.y));
+  const auto = axisRange(series.map((p) => p.y));
+  const { min, max } = yAxisRange(auto);
   chart.options.scales.y.min = min;
   chart.options.scales.y.max = max;
-  showAxisNote(series, min, max);
+  // an empty box shows (greyed out) the automatic value it uses
+  $('yMin').placeholder = String(auto.min);
+  $('yMax').placeholder = String(auto.max);
+  showAxisNote(series, min, max, yManual.min !== null || yManual.max !== null);
   chart.update();
 }
 
+// Manual y axis range set with the "Y axis" button. null = automatic.
+let yManual = { min: null, max: null };
+
+// the range actually drawn: the manual bounds where set, the automatic ones
+// elsewhere. With a single manual bound beyond the automatic other one, the
+// other one moves to keep the axis valid.
+function yAxisRange(auto) {
+  let min = yManual.min ?? auto.min;
+  let max = yManual.max ?? auto.max;
+  if (min >= max) {
+    if (yManual.max === null) max = min + Y_ROUND;
+    else min = max - Y_ROUND;
+  }
+  return { min, max };
+}
+
+// value of a y range box: null when empty, NaN when not a number
+function readYBound(input) {
+  const text = input.value.trim();
+  if (!text) return null;
+  const v = Number(text);
+  return Number.isFinite(v) ? v : NaN;
+}
+
+// read both boxes and redraw right away; invalid input leaves the chart as it is
+function applyYRange() {
+  const min = readYBound($('yMin')), max = readYBound($('yMax'));
+  const badMin = Number.isNaN(min), badMax = Number.isNaN(max);
+  const crossed = !badMin && !badMax && min !== null && max !== null && min >= max;
+  $('yMin').classList.toggle('invalid', badMin || crossed);
+  $('yMax').classList.toggle('invalid', badMax || crossed);
+  $('yRangeMsg').textContent = badMin || badMax ? 'Enter a number.'
+    : crossed ? 'Min must be lower than max.' : '';
+  if (badMin || badMax || crossed) return;
+  yManual = { min, max };
+  if (!$('chartWrap').hidden) render();
+}
+
+function clearYRange() {
+  $('yMin').value = '';
+  $('yMax').value = '';
+  applyYRange();
+}
+
+$('yAxisButton').addEventListener('click', (e) => {
+  const open = $('yRange').hidden;
+  $('yRange').hidden = !open;
+  e.currentTarget.setAttribute('aria-expanded', String(open));
+  if (open) $('yMin').focus();
+});
+$('yMin').addEventListener('input', applyYRange);
+$('yMax').addEventListener('input', applyYRange);
+$('yAuto').addEventListener('click', clearYRange);
+
 // below the chart: how many observations lie outside the y axis (outliers
-// cut off by axisRange), so they are not silently missing
-function showAxisNote(pts, min, max) {
+// cut off by axisRange or by a manual range), so they are not silently missing
+function showAxisNote(pts, min, max, manual = false) {
   let above = 0, below = 0, top = -Infinity, bottom = Infinity;
   for (const p of pts) {
     if (p.y > max) { above++; if (p.y > top) top = p.y; }
@@ -584,7 +642,7 @@ function showAxisNote(pts, min, max) {
   const note = $('axisNote');
   note.hidden = !parts.length;
   note.textContent = parts.length
-    ? `Outliers not shown: ${parts.join(', ')}. They are still in the copied values and the CSV.`
+    ? `${manual ? 'Outside the set y axis range' : 'Outliers not shown'}: ${parts.join(', ')}. They are still in the copied values and the CSV.`
     : '';
 }
 
@@ -652,6 +710,8 @@ function revealChart() {
   }
 }
 
+let chartBand = null; // band of the chart; the manual y range is kept while it stays the same
+
 function resetChart(startDate, endDate, band) {
   series = [];
   $('axisNote').hidden = true;
@@ -663,6 +723,15 @@ function resetChart(startDate, endDate, band) {
   o.x.min = startDate;
   o.x.max = endDate;
   lineRange = { from: Date.parse(startDate), to: Date.parse(endDate) };
+  if (band !== chartBand) {
+    chartBand = band;
+    $('yMin').value = '';
+    $('yMax').value = '';
+    $('yMin').classList.remove('invalid');
+    $('yMax').classList.remove('invalid');
+    $('yRangeMsg').textContent = '';
+    yManual = { min: null, max: null };
+  }
   const name = BAND_TITLES[band] || band;
   o.y.title.text = INDEX_BANDS.has(band) ? `${name} × 10000` : `${name} reflectance × 10000`;
   showChart(false);
@@ -902,7 +971,7 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const t = e.target;
   if (t instanceof Element) {
-    if (t.closest('textarea, [contenteditable=""], [contenteditable="true"], #map')) return;
+    if (t.closest('textarea, [contenteditable=""], [contenteditable="true"], #map, #yRange')) return;
     const control = t.closest('button, a[href], summary');
     if (control && control.id !== 'getData' && !focusFromPointer) return;
   }
