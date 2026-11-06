@@ -2,9 +2,16 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // y axis: 110 % of the highest / lowest value (rounded outwards to 100),
-// cut off at +/-10000 (reflectance / index x 10000)
-const Y_LIMIT = 10000;
+// ignoring outlier spikes beyond an outlier fence (see axisRange)
+const Y_DEFAULT_MAX = 10000;  // empty chart
+const Y_FENCE = 3;            // fence: quartiles -/+ 3 x interquartile range
+const Y_FENCE_MIN_OBS = 8;    // fewer observations: plain min / max
 const Y_PAD = 1.1;
+// bands whose values cannot leave +/-10000 (reflectance, normalized
+// differences, EVI): their axis is also capped there. MSI (a ratio), AWEI
+// and the Tasseled Cap components have no such bound.
+const Y_LIMIT = 10000;
+const Y_UNBOUNDED = new Set(['MSI', 'AWEI', 'TCB', 'TCG', 'TCW']);
 const Y_ROUND = 100;
 const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'MNDWI', 'AWEI', 'MSI', 'TCB', 'TCG', 'TCW']);
 const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
@@ -507,6 +514,8 @@ const LINE_MODES = {
 // date range of the current job (ms, UTC days like the observations); the
 // lines are drawn from `from` to `to`
 let lineRange = null;
+// band of the current job (sets the y-axis cap, see axisRange)
+let chartBand = null;
 
 function currentRange() {
   if (lineRange) return lineRange;
@@ -558,21 +567,45 @@ function render() {
   for (let i = 0; i < LINE_DS; i++) chart.setDatasetVisibility(i, HLS_DS.includes(i) === harmonized);
   applyLineMode(ds[LINE_DS]);
 
-  const { min, max } = axisRange(series.map((p) => p.y));
+  const { min, max } = axisRange(series.map((p) => p.y), chartBand);
   chart.options.scales.y.min = min;
   chart.options.scales.y.max = max;
   chart.update();
 }
 
+// value at quantile q (0..1) of sorted values, linearly interpolated
+function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q;
+  const i = Math.floor(pos);
+  return i + 1 < sorted.length ? sorted[i] + (sorted[i + 1] - sorted[i]) * (pos - i) : sorted[i];
+}
+
 // Axis range: 0 .. 110 % of the highest value for positive data, down to
-// 110 % of the lowest value when there are negative values. Values beyond
-// +/-10000 are cut off (they are not drawn and cannot be hovered).
-function axisRange(ys) {
-  if (!ys.length) return { min: 0, max: Y_LIMIT };
-  let lo = Infinity, hi = -Infinity;
-  for (const y of ys) { if (y < lo) lo = y; if (y > hi) hi = y; }
-  const max = hi > 0 ? Math.min(Y_LIMIT, Math.ceil((hi * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
-  const min = lo < 0 ? Math.max(-Y_LIMIT, Math.floor((lo * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
+// 110 % of the lowest value when there are negative values.
+// Outlier spikes (e.g. an undetected cloud in a reflectance band, or an
+// index with a tiny denominator) would squash the rest of the series, so the
+// highest / lowest value used is limited to an outlier fence (Tukey): the
+// 25th percentile - 3 x IQR and the 75th percentile + 3 x IQR, where IQR is
+// the interquartile range of all clear observations. All values within the
+// fence always fit (unlike a plain 95th percentile, which would always cut
+// off the top 5 %, e.g. the peak of every season); values beyond it are
+// cut off (not drawn, cannot be hovered). Bounded bands are also capped at
+// +/-10000 (Y_LIMIT).
+function axisRange(ys, band) {
+  if (!ys.length) return { min: 0, max: Y_DEFAULT_MAX };
+  const sorted = Float64Array.from(ys).sort();
+  let lo = sorted[0], hi = sorted[sorted.length - 1];
+  if (sorted.length >= Y_FENCE_MIN_OBS) {
+    const q1 = quantile(sorted, 0.25), q3 = quantile(sorted, 0.75);
+    const iqr = q3 - q1;
+    if (iqr > 0) {
+      hi = Math.min(hi, q3 + Y_FENCE * iqr);
+      lo = Math.max(lo, q1 - Y_FENCE * iqr);
+    }
+  }
+  const limit = Y_UNBOUNDED.has(band) ? Infinity : Y_LIMIT;
+  const max = hi > 0 ? Math.min(limit, Math.ceil((hi * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
+  const min = lo < 0 ? Math.max(-limit, Math.floor((lo * Y_PAD) / Y_ROUND) * Y_ROUND) : 0;
   return { min, max: max > min ? max : min + Y_ROUND };
 }
 
@@ -594,6 +627,7 @@ function revealChart() {
 
 function resetChart(startDate, endDate, band) {
   series = [];
+  chartBand = band;
   // drop any hovered point of the previous location: its index may not exist
   // in the new data
   chart.setActiveElements([]);
