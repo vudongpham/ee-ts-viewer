@@ -570,7 +570,27 @@ function render() {
   const { min, max } = axisRange(series.map((p) => p.y), chartBand);
   chart.options.scales.y.min = min;
   chart.options.scales.y.max = max;
+  showAxisNote(series, min, max);
   chart.update();
+}
+
+// below the chart: how many observations lie outside the y axis (outliers
+// cut off by axisRange), so they are not silently missing
+function showAxisNote(pts, min, max) {
+  let above = 0, below = 0, top = -Infinity, bottom = Infinity;
+  for (const p of pts) {
+    if (p.y > max) { above++; if (p.y > top) top = p.y; }
+    else if (p.y < min) { below++; if (p.y < bottom) bottom = p.y; }
+  }
+  const n = (k) => `${k} value${k === 1 ? '' : 's'}`;
+  const parts = [];
+  if (above) parts.push(`${n(above)} above the axis (up to ${top})`);
+  if (below) parts.push(`${n(below)} below the axis (down to ${bottom})`);
+  const note = $('axisNote');
+  note.hidden = !parts.length;
+  note.textContent = parts.length
+    ? `Outliers not shown: ${parts.join(', ')}. They are still in the copied values and the CSV.`
+    : '';
 }
 
 // value at quantile q (0..1) of sorted values, linearly interpolated
@@ -628,6 +648,7 @@ function revealChart() {
 function resetChart(startDate, endDate, band) {
   series = [];
   chartBand = band;
+  $('axisNote').hidden = true;
   // drop any hovered point of the previous location: its index may not exist
   // in the new data
   chart.setActiveElements([]);

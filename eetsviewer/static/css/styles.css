@@ -351,6 +351,13 @@ input.coord.invalid {
 
 #myChart { cursor: pointer; }
 
+/* values cut off by the y axis (outliers) */
+.chart-note {
+  margin: 4px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* scene overlay */
 #overlayRow .hint {
   margin: 0;
