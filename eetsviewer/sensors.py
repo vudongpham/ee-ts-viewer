@@ -14,7 +14,7 @@ from datetime import date
 # Sentinel-2 only.
 REFLECTANCE_BANDS = ("BLUE", "GREEN", "RED", "RE1", "RE2", "RE3", "BNIR", "NIR", "SWIR1", "SWIR2")
 SEN2_ONLY = ("RE1", "RE2", "RE3", "BNIR")
-INDICES = ("NDVI", "EVI", "NBR", "NDMI", "NDWI", "TCB", "TCG", "TCW")
+INDICES = ("NDVI", "EVI", "NBR", "NDMI", "NDWI", "MNDWI", "AWEI", "MSI", "TCB", "TCG", "TCW")
 ALL_BANDS = REFLECTANCE_BANDS + INDICES
 
 # ---------------------------------------------------------------------------
@@ -339,6 +339,14 @@ def compute_value(sensor, raw, band):
         v = _nd(r("NIR"), r("SWIR1"))
     elif band == "NDWI":
         v = _nd(r("GREEN"), r("NIR"))
+    elif band == "MNDWI":  # Xu (2006)
+        v = _nd(r("GREEN"), r("SWIR1"))
+    elif band == "AWEI":  # AWEI no-shadow, Feyisa et al. (2014); linear in reflectance
+        g, n, s1, s2 = r("GREEN"), r("NIR"), r("SWIR1"), r("SWIR2")
+        v = None if None in (g, n, s1, s2) else 4.0 * (g - s1) - (0.25 * n + 2.75 * s2)
+    elif band == "MSI":  # Moisture Stress Index, Hunt & Rock (1989): SWIR1 / NIR
+        n, s1 = r("NIR"), r("SWIR1")
+        v = None if n is None or s1 is None or n <= 0 else s1 / n * 10000.0
     elif band == "EVI":
         n, red, blue = r("NIR"), r("RED"), r("BLUE")
         v = None

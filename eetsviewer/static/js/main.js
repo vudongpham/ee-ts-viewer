@@ -6,7 +6,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const Y_LIMIT = 10000;
 const Y_PAD = 1.1;
 const Y_ROUND = 100;
-const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'TCB', 'TCG', 'TCW']);
+const INDEX_BANDS = new Set(['NDVI', 'EVI', 'NBR', 'NDMI', 'NDWI', 'MNDWI', 'AWEI', 'MSI', 'TCB', 'TCG', 'TCW']);
 const BAND_TITLES = { TCB: 'TC Brightness', TCG: 'TC Greenness', TCW: 'TC Wetness' };
 const POLL_MS = 120;          // status poll interval while a job is running
 
@@ -835,6 +835,14 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault(); // stops the coordinate form's implicit "Go to" submit
   $('getData').click();
 });
+
+// the band box is narrow: show the full name of the chosen band on hover
+function syncBandTitle() {
+  const sel = $('Bands');
+  sel.title = sel.options[sel.selectedIndex]?.text || '';
+}
+$('Bands').addEventListener('change', syncBandTitle);
+syncBandTitle();
 
 // redraw the line in the chosen mode; no new extraction needed
 $('lineMode').addEventListener('change', () => {
