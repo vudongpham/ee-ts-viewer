@@ -222,6 +222,8 @@ async function showOverlay(p) {
 // (Landsat, Sentinel-2) and never the line: with dense lines (harmonic fits,
 // moving average) the line would otherwise almost always be the nearest
 // element, leaving the tooltip with nothing to show.
+// The nearest observation is the one closest to the mouse in screen pixels
+// (straight-line distance in x and y), not just the closest date.
 const LINE_DS = 4;
 const HLS_DS = [2, 3];       // datasets of the harmonized group
 Chart.Interaction.modes.nearestObservation = (chart, e) => {
@@ -233,7 +235,7 @@ Chart.Interaction.modes.nearestObservation = (chart, e) => {
       if (!el || el.skip) return;
       const area = chart.chartArea;
       if (el.y < area.top || el.y > area.bottom) return;   // cut off: not visible
-      const d = Math.abs(el.x - pos.x);
+      const d = Math.hypot(el.x - pos.x, el.y - pos.y);
       if (d < bestDist) { bestDist = d; best = [{ element: el, datasetIndex: di, index }]; }
       else if (d === bestDist) best.push({ element: el, datasetIndex: di, index });
     });
