@@ -23,13 +23,12 @@ docker run -it --rm \
 If the Docker login fails with *"incompatible OAuth2 Client configuration"*, choose a different (e.g. new, empty) project on the authenticator page, or use the Python login above; see the [guide](INSTALL.md#project-has-an-incompatible-oauth2-client-configuration).
 Alternatively, use a service account JSON key (see *Options* and the [guide](INSTALL.md#option-c--service-account-key)).
 
-### 2. Pull the image
+### 2. Run with Docker
+Pull the image:
 ```
 docker pull vudongpham/eetsviewer:latest
 ```
-or install with pip: `pip install git+https://github.com/vudongpham/ee-ts-viewer.git`
-
-### 3. Run
+and run it:
 ```
 docker run --rm -t \
   -v ~/.config/earthengine:/root/.config/earthengine \
@@ -45,6 +44,39 @@ docker run --rm -t -e HOST_PORT=8080 \
   -p 8080:2742 \
   vudongpham/eetsviewer eetsviewer --project your-gcp-project
 ```
+
+### 3. Or run with Python (no Docker)
+You need Python 3.11 or newer. Installing into a virtual environment keeps the app's packages separate from the rest of your system.
+
+On Linux / macOS:
+```
+python3 -m venv eetsviewer-env
+source eetsviewer-env/bin/activate
+pip install git+https://github.com/vudongpham/ee-ts-viewer.git
+```
+On Windows (PowerShell):
+```
+py -m venv eetsviewer-env
+eetsviewer-env\Scripts\Activate.ps1
+pip install git+https://github.com/vudongpham/ee-ts-viewer.git
+```
+This also installs `earthengine-api`, so if you have not logged in yet (step 1), run `earthengine authenticate --auth_mode=localhost` now.
+
+Start the app:
+```
+eetsviewer --project your-gcp-project
+```
+Then open `http://localhost:2742` in a web browser. To use another port, pass `-p`, e.g. `eetsviewer --project your-gcp-project -p 8080`.
+
+Next time, activate the environment again (`source eetsviewer-env/bin/activate`, or `eetsviewer-env\Scripts\Activate.ps1` on Windows) before running `eetsviewer`. To update to the latest version:
+```
+pip install --upgrade --force-reinstall --no-deps git+https://github.com/vudongpham/ee-ts-viewer.git
+```
+To use a service account key instead of your own login, pass `--key /path/to/key.json`.
+
+Notes:
+- On minimal Linux systems (e.g. Debian/Ubuntu "slim" images), the GeoTIFF download needs the `libexpat1` package: `sudo apt-get install libexpat1`.
+- If `git` is not installed, download the repository as a ZIP from GitHub, unpack it, and run `pip install .` inside the unpacked folder.
 
 ### Options
 - `--project`: Google Cloud project used for Earth Engine. Default: `$EE_PROJECT`, or the project of the service account key
