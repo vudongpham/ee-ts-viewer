@@ -46,18 +46,10 @@ docker run --rm -t -e HOST_PORT=8080 \
 ```
 
 ### 3. Or run with Python (no Docker)
-You need Python 3.11 or newer. Installing into a virtual environment keeps the app's packages separate from the rest of your system.
-
-On Linux / macOS:
+You need [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or Anaconda. Create an environment for the app with Python 3.11 or newer and install it there, so its packages stay separate from the rest of your system (on Windows, use the *Anaconda Prompt*):
 ```
-python3 -m venv eetsviewer-env
-source eetsviewer-env/bin/activate
-pip install git+https://github.com/vudongpham/ee-ts-viewer.git
-```
-On Windows (PowerShell):
-```
-py -m venv eetsviewer-env
-eetsviewer-env\Scripts\Activate.ps1
+conda create -n eetsviewer python=3.12
+conda activate eetsviewer
 pip install git+https://github.com/vudongpham/ee-ts-viewer.git
 ```
 This also installs `earthengine-api`, so if you have not logged in yet (step 1), run `earthengine authenticate --auth_mode=localhost` now.
@@ -68,7 +60,7 @@ eetsviewer --project your-gcp-project
 ```
 Then open `http://localhost:2742` in a web browser. To use another port, pass `-p`, e.g. `eetsviewer --project your-gcp-project -p 8080`.
 
-Next time, activate the environment again (`source eetsviewer-env/bin/activate`, or `eetsviewer-env\Scripts\Activate.ps1` on Windows) before running `eetsviewer`. To update to the latest version:
+Next time, activate the environment again with `conda activate eetsviewer` before running `eetsviewer`. To update to the latest version:
 ```
 pip install --upgrade --force-reinstall --no-deps git+https://github.com/vudongpham/ee-ts-viewer.git
 ```
@@ -76,7 +68,7 @@ To use a service account key instead of your own login, pass `--key /path/to/key
 
 Notes:
 - On minimal Linux systems (e.g. Debian/Ubuntu "slim" images), the GeoTIFF download needs the `libexpat1` package: `sudo apt-get install libexpat1`.
-- If `git` is not installed, download the repository as a ZIP from GitHub, unpack it, and run `pip install .` inside the unpacked folder.
+- If `git` is not installed, run `conda install git` in the environment first, or download the repository as a ZIP from GitHub, unpack it, and run `pip install .` inside the unpacked folder.
 
 ### Options
 - `--project`: Google Cloud project used for Earth Engine. Default: `$EE_PROJECT`, or the project of the service account key
