@@ -50,6 +50,17 @@
           <label class="field"><span>Start date</span><input id="startDate" type="date" value="2024-01-01"></label>
           <label class="field"><span>End date</span><input id="endDate" type="date" value="2025-12-31"></label>
         </div>
+        <fieldset class="months" id="months">
+          <legend>Months
+            <button type="button" id="monthsAll" class="link-btn">All</button>
+            <button type="button" id="monthsNone" class="link-btn">None</button>
+          </legend>
+          <div class="chips">
+            {%- for m in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+            <label class="chip"><input type="checkbox" name="selectedMonths" value="{{ loop.index0 }}" checked>{{ m }}</label>
+            {%- endfor %}
+          </div>
+        </fieldset>
       </section>
 
       <section class="card">

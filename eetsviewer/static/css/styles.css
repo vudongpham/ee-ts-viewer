@@ -233,6 +233,20 @@ input.coord.invalid {
 .chip:has(input:checked) { border-color: #93b4d6; background: #eef5fc; }
 .chip input { margin: 0; }
 
+/* month filter under the dates */
+.months { margin: 10px 0 0; padding: 0; border: 0; min-width: 0; }
+.months legend { padding: 0; font-size: 12px; font-weight: 600; }
+.link-btn {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--font);
+  color: #2b6cb0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 /* the inactive group is greyed out; its radio button stays clickable */
 .sensorGroup:disabled .chips { opacity: 0.4; }
 .sensorGroup:disabled .chip { cursor: default; }

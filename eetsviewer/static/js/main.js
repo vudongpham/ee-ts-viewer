@@ -369,19 +369,35 @@ const chart = new Chart($('myChart').getContext('2d'), {
 
 // raw points of the current job, kept sorted by date. Points are collected
 // silently while the extraction runs; the chart is drawn only once it ends.
+// `allPoints` holds everything extracted; `series` is the part in the months
+// ticked in "Months" (all 12 by default). Chart, line and exports use `series`.
+let allPoints = [];
 let series = [];
+
+function selectedMonths() {
+  return new Set(Array.from(document.querySelectorAll('input[name="selectedMonths"]:checked'))
+    .map((el) => Number(el.value)));
+}
+
+function refreshSeries() {
+  const months = selectedMonths();
+  series = months.size === 12
+    ? allPoints.slice()
+    : allPoints.filter((p) => months.has(new Date(p.x).getUTCMonth()));
+}
 
 function insertSorted(points) {
   for (const p of points) {
     const pt = { x: p[0] * DAY_MS, y: p[1], s: p[2], d: p[0], id: p[3] };
     // binary search insertion (points mostly arrive in date order -> cheap)
-    let lo = 0, hi = series.length;
+    let lo = 0, hi = allPoints.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (series[mid].x <= pt.x) lo = mid + 1; else hi = mid;
+      if (allPoints[mid].x <= pt.x) lo = mid + 1; else hi = mid;
     }
-    series.splice(lo, 0, pt);
+    allPoints.splice(lo, 0, pt);
   }
+  refreshSeries();
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +729,7 @@ function revealChart() {
 let chartBand = null; // band of the chart; the manual y range is kept while it stays the same
 
 function resetChart(startDate, endDate, band) {
+  allPoints = [];
   series = [];
   $('axisNote').hidden = true;
   // drop any hovered point of the previous location: its index may not exist
@@ -990,6 +1007,26 @@ syncBandTitle();
 // redraw the line in the chosen mode; no new extraction needed
 $('lineMode').addEventListener('change', () => {
   if (!$('chartWrap').hidden) render();
+});
+
+// show only the ticked months; no new extraction needed
+function monthsChanged() {
+  refreshSeries();
+  if (!$('chartWrap').hidden) {
+    render();
+    setExportEnabled(series.length > 0);
+  }
+}
+document.querySelectorAll('input[name="selectedMonths"]').forEach((el) => {
+  el.addEventListener('change', monthsChanged);
+});
+$('monthsAll').addEventListener('click', () => {
+  document.querySelectorAll('input[name="selectedMonths"]').forEach((el) => { el.checked = true; });
+  monthsChanged();
+});
+$('monthsNone').addEventListener('click', () => {
+  document.querySelectorAll('input[name="selectedMonths"]').forEach((el) => { el.checked = false; });
+  monthsChanged();
 });
 
 // Stop: ask the server to cancel; the polling loop then receives the
